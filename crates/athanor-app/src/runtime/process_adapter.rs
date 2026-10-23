@@ -460,7 +460,6 @@ mod tests {
             clear_environment: true,
             limits: ProcessLimits::default(),
             expected: Vec::new(),
-            fully_verified: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
         }
     }
 

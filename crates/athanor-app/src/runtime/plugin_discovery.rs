@@ -91,7 +91,10 @@ fn plugin_bundle_manifest(plugin_dir: &Path) -> Result<Option<PathBuf>> {
 
 pub(super) fn read_manifest(path: PathBuf) -> Result<DiscoveredAdapterPlugin> {
     if !is_regular_file(&path, "adapter manifest")? {
-        bail!("adapter manifest must be a regular file: {}", path.display());
+        bail!(
+            "adapter manifest must be a regular file: {}",
+            path.display()
+        );
     }
     let content =
         fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -184,8 +187,8 @@ fn symlink_metadata_if_exists(path: &Path, label: &str) -> Result<Option<fs::Met
     match fs::symlink_metadata(path) {
         Ok(metadata) => Ok(Some(metadata)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(error).with_context(|| {
-            format!("failed to inspect {label} {}", path.display())
-        }),
+        Err(error) => {
+            Err(error).with_context(|| format!("failed to inspect {label} {}", path.display()))
+        }
     }
 }

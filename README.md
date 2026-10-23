@@ -80,8 +80,9 @@ cargo run -p ath --quiet -- config validate --path .
 cargo run -p ath --quiet -- config doctor --path . --json
 ```
 
-The default CLI build uses the portable JSONL store. SurrealDB is optional and must be enabled
-explicitly when a project selects a `surreal-*` storage mode:
+The default CLI build uses the portable JSONL store. `config doctor` reports storage compatibility
+from the actual CLI build features and includes each check's explanatory detail in text output.
+SurrealDB is optional and must be enabled explicitly when a project selects a `surreal-*` storage mode:
 
 ```bash
 cargo run -p ath --features store-surreal -- index .

@@ -9,11 +9,22 @@ use crate::config::{
 use crate::discover_adapter_plugins;
 
 pub fn doctor_project_config(options: ConfigReportOptions) -> Result<ConfigDoctorReport> {
+    doctor_project_config_with_store_support(options, false)
+}
+
+pub fn doctor_project_config_with_store_support(
+    options: ConfigReportOptions,
+    surreal_storage_available: bool,
+) -> Result<ConfigDoctorReport> {
     let config = load_config(&options.root)?;
     let (storage_status, storage_detail) = match config.storage.mode {
         StorageMode::Jsonl => (
             "available",
             "JSONL storage is compiled into this build".to_string(),
+        ),
+        StorageMode::SurrealEmbedded | StorageMode::SurrealMemory if surreal_storage_available => (
+            "available",
+            "SurrealDB storage is compiled into this build".to_string(),
         ),
         StorageMode::SurrealEmbedded | StorageMode::SurrealMemory => (
             "requires-feature",
@@ -105,8 +116,6 @@ fn doctor_external_process_adapters(root: &Path, config: &ProjectConfig) -> (Str
     }
     (
         "enabled".to_string(),
-        format!(
-            "{external} external process plugin(s) present; execution still requires trust"
-        ),
+        format!("{external} external process plugin(s) present; execution still requires trust"),
     )
 }

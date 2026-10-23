@@ -1,8 +1,11 @@
+use std::collections::BTreeSet;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use athanor_core::{OperationContext, OperationContextCancellation, SourceFile};
+
+use crate::project_path::{normalize_canonical_path, portable_relative_path};
 
 const DISCOVERY_POLL_INTERVAL: usize = 64;
 const HASH_POLL_BYTES: usize = 16 * 1024;
@@ -23,14 +26,19 @@ fn discover_source_files_inner(
     operation: Option<&OperationContext>,
 ) -> Result<Vec<SourceFile>> {
     let mut poller = DiscoveryPoller::new(operation, DISCOVERY_POLL_INTERVAL)?;
-    let root = root
-        .canonicalize()
-        .with_context(|| format!("failed to canonicalize root {}", root.display()))?;
+    let root = normalize_canonical_path(
+        root.canonicalize()
+            .with_context(|| format!("failed to canonicalize root {}", root.display()))?,
+    );
     let mut files = Vec::new();
-    let mut pending = vec![root.clone()];
+    let mut pending = vec![(root.clone(), root.clone())];
+    let mut visited = BTreeSet::new();
 
-    while let Some(current) = pending.pop() {
+    while let Some((current, canonical)) = pending.pop() {
         poller.step()?;
+        if !visited.insert(canonical) {
+            continue;
+        }
         let entries = fs::read_dir(&current)
             .with_context(|| format!("failed to read {}", current.display()))?;
         let mut child_directories = Vec::new();
@@ -46,7 +54,8 @@ fn discover_source_files_inner(
             }
 
             if path.is_dir() {
-                child_directories.push(path);
+                let canonical = contained_canonical_path(&root, &path)?;
+                child_directories.push((path, canonical));
             } else if path.is_file() {
                 let relative = path.strip_prefix(&root).with_context(|| {
                     format!("failed to strip root prefix for {}", path.display())
@@ -58,7 +67,7 @@ fn discover_source_files_inner(
             }
         }
 
-        child_directories.sort_by(|left, right| right.cmp(left));
+        child_directories.sort_by(|left, right| right.0.cmp(&left.0));
         pending.extend(child_directories);
     }
 
@@ -78,19 +87,32 @@ fn read_source_file_at_with_poller(
     poller: &mut DiscoveryPoller<'_>,
 ) -> Result<Option<SourceFile>> {
     poller.step()?;
+    let portable_path = portable_relative_path(relative)?;
     let path = root.join(relative);
     if !path.is_file() {
         return Ok(None);
     }
+    contained_canonical_path(root, &path)?;
     let content = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
     let content_hash = fnv1a64_with_poller(&content, poller)?;
 
     Ok(Some(SourceFile {
-        path: normalize_path(relative),
+        path: portable_path,
         language_hint: language_hint(relative),
         content_hash: Some(format!("fnv1a64:{content_hash:016x}")),
         content: String::from_utf8(content).ok(),
     }))
+}
+
+fn contained_canonical_path(root: &Path, path: &Path) -> Result<PathBuf> {
+    let canonical = normalize_canonical_path(
+        path.canonicalize()
+            .with_context(|| format!("failed to canonicalize {}", path.display()))?,
+    );
+    if !canonical.starts_with(root) {
+        anyhow::bail!("{} is outside {}", path.display(), root.display());
+    }
+    Ok(canonical)
 }
 
 struct DiscoveryPoller<'a> {
@@ -165,13 +187,6 @@ fn should_ignore(file_name: &str) -> bool {
     )
 }
 
-fn normalize_path(path: &Path) -> String {
-    path.components()
-        .map(|component| component.as_os_str().to_string_lossy())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
 fn language_hint(path: &Path) -> Option<String> {
     path.extension()
         .and_then(|extension| extension.to_str())
@@ -212,6 +227,34 @@ mod tests {
             cause.downcast_ref::<CoreError>(),
             Some(CoreError::Cancelled(_))
         )));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn discovery_rejects_escaping_symlinks_and_ignores_directory_cycles() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-local-source-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let outside = root.with_extension("outside.rs");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("inside.rs"), "fn inside() {}\n").unwrap();
+        fs::write(&outside, "fn outside() {}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("outside.rs")).unwrap();
+        std::os::unix::fs::symlink(&root, root.join("cycle")).unwrap();
+
+        let error = discover_source_files(&root).expect_err("escaping symlink must fail closed");
+        assert!(error.to_string().contains("is outside"));
+
+        fs::remove_file(root.join("outside.rs")).unwrap();
+        let files = discover_source_files(&root).expect("directory cycle must be skipped");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, "inside.rs");
+        fs::remove_dir_all(root).unwrap();
+        fs::remove_file(outside).unwrap();
     }
 
     #[test]

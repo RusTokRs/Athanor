@@ -224,7 +224,7 @@ pub use change_map::*;
 pub use check::*;
 pub use composition::*;
 pub use config::*;
-pub use config_doctor::doctor_project_config;
+pub use config_doctor::{doctor_project_config, doctor_project_config_with_store_support};
 pub use context::*;
 pub use context_report::*;
 pub use coverage::*;

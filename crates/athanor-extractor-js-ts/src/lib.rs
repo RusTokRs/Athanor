@@ -1573,7 +1573,16 @@ fn expression_assertion_type(node: Node, bytes: &[u8]) -> Option<String> {
 }
 
 /// A usable asserted type: `as const` and unions/arrays/functions name nothing.
+/// Angle-bracket assertions wrap their one type in a `type_arguments` node.
 fn assertion_type_name(node: Node, bytes: &[u8]) -> Option<String> {
+    let node = if node.kind() == "type_arguments" {
+        if node.named_child_count() != 1 {
+            return None;
+        }
+        node.named_child(0)?
+    } else {
+        node
+    };
     let text = node_text(node, bytes)?;
     if text.trim() == "const" {
         return None;
@@ -5618,14 +5627,14 @@ mod tests {
         let output = JsTsExtractor
             .extract(input(
                 "src/app.ts",
-                "export function run(value, other) {\\n\\\
-                   (value as Repo).save();\\n\\\
-                   (<Store>value).load();\\n\\\
-                   (value satisfies Item).flush();\\n\\\
-                   (value as Repo).items.save();\\n\\\
-                   (value as const).reset();\\n\\\
-                   (value as Repo | Other).close();\\n\\\
-                 }\\n",
+                "export function run(value, other) {\n\
+                   (value as Repo).save();\n\
+                   (<Store>value).load();\n\
+                   (value satisfies Item).flush();\n\
+                   (value as Repo).items.save();\n\
+                   (value as const).reset();\n\
+                   (value as Repo | Other).close();\n\
+                 }\n",
                 "typescript",
             ))
             .await
@@ -5996,6 +6005,7 @@ mod tests {
                  const wrap = () => fetch() as Store;\n\
                  class App { build() { return make() as Builder; } }\n\
                  function parens() { return (load() as Repo); }\n\
+                 function angle() { return <Store>load(); }\n\
                  async function load() { return await get() as Repo; }\n\
                  function constructed() { return new Repo() as Other; }\n\
                  function mixed() {\n\
@@ -6033,6 +6043,7 @@ mod tests {
             recorded,
             vec![
                 ("App.build".to_string(), "Builder".to_string()),
+                ("angle".to_string(), "Store".to_string()),
                 ("createRepo".to_string(), "Repo".to_string()),
                 ("load".to_string(), "Repo".to_string()),
                 ("parens".to_string(), "Repo".to_string()),

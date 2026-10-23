@@ -61,7 +61,9 @@ rows with an `omitted_typed_bindings` count. An unannotated `let store = create_
 `let store = create_repo().unwrap()`, or an inner unwrap hop such as
 `let store = create_repo().unwrap().get()` instead records a
 bounded `call_bindings` row `{name, callee, line}` so the linker can read that factory's
-declared return; a trailing `?` or unwrap/expect also sets `try: true`. A third hop names nothing. Named struct fields use the same `typed_bindings` rows, so
+declared return; a trailing `?` or unwrap/expect also sets `try: true`. A third hop names nothing;
+`unwrap_or`, `unwrap_or_else`, and `unwrap_or_default` are not factory bindings. Named struct fields
+use the same `typed_bindings` rows, so
 `self.reader.write()` can dispatch from the field `App` declares; a tuple or unit struct records
 none. References
 and `Box`/`Rc`/`Arc` unwrap to the type they name; a generic argument, a trait object with extra

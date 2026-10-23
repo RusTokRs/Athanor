@@ -4,10 +4,10 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 use athanor_core::{Checker, Extractor, KnowledgeStore, Linker, SourceProvider};
 
+use super::TrustedAdapterExecutable;
 use super::model::{AdapterPluginEntry, AdapterPluginKind, AdapterPluginManifest};
 use super::process_adapter;
 use super::process_adapter_support::{ProcessCommand, ProcessLimits, normalize_extension};
-use super::TrustedAdapterExecutable;
 use crate::IndexPipeline;
 
 pub(super) type SourceFactory = Box<dyn Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync>;
@@ -209,11 +209,8 @@ impl AdapterRegistry {
         id: &str,
         factory: impl Fn(&Path) -> Box<dyn SourceProvider> + Send + Sync + 'static,
     ) -> Self {
-        self.push_named(
-            id,
-            Box::new(factory),
-            |registry| &mut registry.source_factories,
-        );
+        let factory: SourceFactory = Box::new(factory);
+        self.push_named(id, factory, |registry| &mut registry.source_factories);
         self
     }
 
@@ -222,11 +219,8 @@ impl AdapterRegistry {
         id: &str,
         factory: impl Fn() -> Box<dyn Extractor> + Send + Sync + 'static,
     ) -> Self {
-        self.push_named(
-            id,
-            Box::new(factory),
-            |registry| &mut registry.extractor_factories,
-        );
+        let factory: ExtractorFactory = Box::new(factory);
+        self.push_named(id, factory, |registry| &mut registry.extractor_factories);
         self
     }
 
@@ -235,11 +229,8 @@ impl AdapterRegistry {
         id: &str,
         factory: impl Fn() -> Box<dyn Linker> + Send + Sync + 'static,
     ) -> Self {
-        self.push_named(
-            id,
-            Box::new(factory),
-            |registry| &mut registry.linker_factories,
-        );
+        let factory: LinkerFactory = Box::new(factory);
+        self.push_named(id, factory, |registry| &mut registry.linker_factories);
         self
     }
 
@@ -248,11 +239,8 @@ impl AdapterRegistry {
         id: &str,
         factory: impl Fn() -> Box<dyn Checker> + Send + Sync + 'static,
     ) -> Self {
-        self.push_named(
-            id,
-            Box::new(factory),
-            |registry| &mut registry.checker_factories,
-        );
+        let factory: CheckerFactory = Box::new(factory);
+        self.push_named(id, factory, |registry| &mut registry.checker_factories);
         self
     }
 

@@ -526,9 +526,7 @@ fn resolve_call<'a>(
         // 6. Bare call without a local or imported target: accept a unique
         //    exported declaration elsewhere in the snapshot.
         if let Some(target) = unique_match(declarations_by_name.get(name), |candidate| {
-            candidate.id != caller.id
-                && is_exported(candidate)
-                && is_js_ts_declaration(candidate)
+            candidate.id != caller.id && is_exported(candidate) && is_js_ts_declaration(candidate)
         }) {
             return Some((target, "unique_exported_name", UNIQUE_NAME_CONFIDENCE));
         }
@@ -546,9 +544,9 @@ fn is_synthetic_call_path(callee: &str) -> bool {
     callee.contains("[]")
         || callee.contains("()")
         || callee.contains("{}")
-        || callee.split('.').any(|segment| {
-            segment.len() > 1 && segment.ends_with('#') && !segment.starts_with('#')
-        })
+        || callee
+            .split('.')
+            .any(|segment| segment.len() > 1 && segment.ends_with('#') && !segment.starts_with('#'))
 }
 
 fn method_owner(entity: &Entity) -> Option<&str> {
@@ -1324,9 +1322,7 @@ fn forwarded_inner<'a>(
         config,
         false,
     )?;
-    FACTORY_RESOLUTIONS
-        .contains(&inner.1)
-        .then_some(inner.0)
+    FACTORY_RESOLUTIONS.contains(&inner.1).then_some(inner.0)
 }
 
 /// One hop through a factory that only returns another factory's call.
@@ -1498,8 +1494,12 @@ enum CallResultRoot {
         awaited: bool,
         invoked: bool,
     },
-    Construction { name: String },
-    Assertion { name: String },
+    Construction {
+        name: String,
+    },
+    Assertion {
+        name: String,
+    },
 }
 
 /// Reads a factory- or construction-result segment the extractor named.
@@ -1530,14 +1530,14 @@ fn call_result_root(segment: &str) -> Option<CallResultRoot> {
                 invoked: false,
             });
         }
-        if let Some(inner) = name.strip_suffix("()") {
-            if call_result_ident(inner) {
-                return Some(CallResultRoot::Factory {
-                    name: inner.to_string(),
-                    awaited: false,
-                    invoked: true,
-                });
-            }
+        if let Some(inner) = name.strip_suffix("()")
+            && call_result_ident(inner)
+        {
+            return Some(CallResultRoot::Factory {
+                name: inner.to_string(),
+                awaited: false,
+                invoked: true,
+            });
         }
         return None;
     }
@@ -1719,19 +1719,15 @@ fn method_call_receiver<'a>(
 ///
 /// A union, a function type, and an alias that names itself stay the original
 /// name, so the walk does not invent a type. A second hop is not taken.
-fn unfold_alias_type<'a>(
+fn unfold_alias_type(
     type_name: &str,
     hint: Option<&str>,
-    declarations_by_name: &HashMap<String, Vec<&'a Entity>>,
+    declarations_by_name: &HashMap<String, Vec<&Entity>>,
 ) -> String {
     let Some(alias) = type_alias_declaration(type_name, hint, declarations_by_name) else {
         return type_name.to_string();
     };
-    match alias
-        .payload
-        .get("aliased_type")
-        .and_then(Value::as_str)
-    {
+    match alias.payload.get("aliased_type").and_then(Value::as_str) {
         Some(aliased) if !aliased.is_empty() && aliased != type_name => aliased.to_string(),
         _ => type_name.to_string(),
     }
@@ -4351,14 +4347,8 @@ mod tests {
             "src/app.ts",
             json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
         );
-        let mut factory = factory_declaration(
-            "ent_create",
-            "src/app.ts",
-            "create",
-            "create",
-            true,
-            None,
-        );
+        let mut factory =
+            factory_declaration("ent_create", "src/app.ts", "create", "create", true, None);
         factory.payload["returned_function_type"] = json!("Repo");
         let save = declaration(
             "ent_repo_save",
@@ -4407,14 +4397,8 @@ mod tests {
             "src/app.ts",
             json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
         );
-        let mut factory = factory_declaration(
-            "ent_create",
-            "src/app.ts",
-            "create",
-            "create",
-            true,
-            None,
-        );
+        let mut factory =
+            factory_declaration("ent_create", "src/app.ts", "create", "create", true, None);
         factory.payload["returned_function_type"] = json!("Repo");
         let save = declaration(
             "ent_repo_save",
@@ -4465,14 +4449,8 @@ mod tests {
                 ]
             }),
         );
-        let mut factory = factory_declaration(
-            "ent_create",
-            "src/app.ts",
-            "create",
-            "create",
-            true,
-            None,
-        );
+        let mut factory =
+            factory_declaration("ent_create", "src/app.ts", "create", "create", true, None);
         factory.payload["returned_function_type"] = json!("Repo");
         let save = declaration(
             "ent_repo_save",
@@ -4520,14 +4498,8 @@ mod tests {
             "src/app.ts",
             json!({"imports": [], "typed_bindings": [], "call_bindings": []}),
         );
-        let mut factory = factory_declaration(
-            "ent_create",
-            "src/app.ts",
-            "create",
-            "create",
-            true,
-            None,
-        );
+        let mut factory =
+            factory_declaration("ent_create", "src/app.ts", "create", "create", true, None);
         factory.payload["returned_function_type"] = json!("Repo");
         let save = declaration(
             "ent_repo_save",

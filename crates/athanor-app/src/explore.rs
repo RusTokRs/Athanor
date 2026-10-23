@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 use athanor_core::{CanonicalSnapshot, CanonicalSnapshotStore, OperationContext};
-use athanor_domain::{Entity, EntityId, Evidence, Relation, SourceLocation};
+use athanor_domain::{DiagnosticStatus, Entity, EntityId, Evidence, Relation, SourceLocation};
 use serde::{Deserialize, Serialize};
 
 use crate::RuntimeComposition;
@@ -331,7 +331,10 @@ pub fn explore_snapshot(
             open_diagnostics: snapshot
                 .diagnostics
                 .iter()
-                .filter(|diagnostic| diagnostic.entities.contains(&entity.id))
+                .filter(|diagnostic| {
+                    diagnostic.status == DiagnosticStatus::Open
+                        && diagnostic.entities.contains(&entity.id)
+                })
                 .count(),
             excerpt: None,
         });
@@ -662,6 +665,35 @@ mod tests {
     }
 
     #[test]
+    fn explore_blast_excludes_the_entry_set_from_reached_entities() {
+        let snapshot = snapshot_fixture();
+        let report = explore(
+            &snapshot,
+            &[LOAD, "symbol://rust:crate::store::Store::refresh"],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
+        );
+
+        assert_eq!(report.blast.entries, 2);
+        assert_eq!(report.blast.reached, 4);
+        assert_eq!(report.blast.by_depth[0].entities, 4);
+        assert_eq!(
+            report
+                .blast
+                .by_depth
+                .iter()
+                .map(|depth| depth.entities)
+                .sum::<usize>(),
+            report.blast.reached,
+            "an entity reached from two entries must count only at its shortest depth"
+        );
+    }
+
+    #[test]
     fn explore_bounds_multi_hop_chains_and_discloses_the_omission() {
         let snapshot = snapshot_fixture();
         let report = explore(
@@ -858,14 +890,11 @@ mod tests {
         assert!(excerpt.text.contains("pub fn load() {"));
         assert_eq!(report.omitted.source_unread, 0);
         assert!(
-            report
-                .paths
-                .iter()
-                .any(|path| path.target.name == "writer"
-                    && path
-                        .excerpt
-                        .as_ref()
-                        .is_some_and(|excerpt| excerpt.source_file == "src/writer.rs")),
+            report.paths.iter().any(|path| path.target.name == "writer"
+                && path
+                    .excerpt
+                    .as_ref()
+                    .is_some_and(|excerpt| excerpt.source_file == "src/writer.rs")),
             "a path target must carry its own excerpt"
         );
 
@@ -902,6 +931,32 @@ mod tests {
             "an escaped citation must be disclosed: {:?}",
             report.omitted.notes
         );
+    }
+
+    #[test]
+    fn explore_counts_only_open_diagnostics() {
+        let mut snapshot = snapshot_fixture();
+        snapshot.diagnostics[0].status = DiagnosticStatus::Resolved;
+        let mut suppressed = snapshot.diagnostics[0].clone();
+        suppressed.id = DiagnosticId("diag_flush_suppressed".to_string());
+        suppressed.status = DiagnosticStatus::Suppressed;
+        suppressed.entities = vec![EntityId("ent_flush".to_string())];
+        snapshot.diagnostics.push(suppressed);
+
+        let report = explore(
+            &snapshot,
+            &[LOAD],
+            ExploreLimits {
+                entries: 5,
+                links: 8,
+                depth: 2,
+                paths: 16,
+            },
+        );
+
+        assert_eq!(report.entries[0].open_diagnostics, 0);
+        assert_eq!(report.blast.open_diagnostics, 0);
+        assert!(report.paths.iter().all(|path| path.open_diagnostics == 0));
     }
 
     #[test]

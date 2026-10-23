@@ -12,7 +12,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use athanor_core::CanonicalSnapshot;
-use athanor_domain::{Entity, Relation, RelationKind};
+use athanor_domain::{DiagnosticStatus, Entity, Relation, RelationKind};
 use serde::{Deserialize, Serialize};
 
 use super::{ExploreCounterpart, label};
@@ -152,6 +152,9 @@ impl<'a> FlowGraph<'a> {
 
         let mut diagnostics: HashMap<&'a str, usize> = HashMap::new();
         for diagnostic in &snapshot.diagnostics {
+            if diagnostic.status != DiagnosticStatus::Open {
+                continue;
+            }
             for entity in &diagnostic.entities {
                 *diagnostics.entry(entity.0.as_str()).or_default() += 1;
             }
@@ -320,12 +323,15 @@ pub(super) fn explore_flow<'a>(
     let mut notes = Vec::new();
     let mut found: Vec<FoundPath<'a>> = Vec::new();
     let mut reached: HashSet<&str> = HashSet::new();
-    let mut by_depth: BTreeMap<usize, HashSet<&str>> = BTreeMap::new();
+    let mut shortest_depths: HashMap<&str, usize> = HashMap::new();
     let mut traversed: HashSet<&str> = HashSet::new();
     let mut visits = 0usize;
     let mut budget_hit = false;
 
     for entry in entries {
+        if budget_hit {
+            break;
+        }
         let origin = graph.stable_key(entry.id.0.as_str());
         let mut visited: HashSet<&str> = HashSet::new();
         visited.insert(entry.id.0.as_str());
@@ -345,15 +351,20 @@ pub(super) fn explore_flow<'a>(
                 .adjacency
                 .get(state.at)
                 .map_or(&[], |edges| edges.as_slice());
-            visits += edges.len();
-            for edge in edges {
+            let remaining = MAX_EXPLORE_VISITS - visits;
+            let expanded = edges.len().min(remaining);
+            visits += expanded;
+            for edge in &edges[..expanded] {
                 if visited.contains(edge.next) {
                     continue;
                 }
                 visited.insert(edge.next);
                 traversed.insert(edge.relation.id.0.as_str());
                 reached.insert(edge.next);
-                by_depth.entry(state.hop).or_default().insert(edge.next);
+                shortest_depths
+                    .entry(edge.next)
+                    .and_modify(|shortest| *shortest = (*shortest).min(state.hop))
+                    .or_insert(state.hop);
 
                 let mut steps = state.steps.clone();
                 steps.push(graph.step(edge));
@@ -374,7 +385,20 @@ pub(super) fn explore_flow<'a>(
                     });
                 }
             }
+            if expanded < edges.len() {
+                budget_hit = true;
+                break;
+            }
         }
+    }
+
+    for entry in entries {
+        reached.remove(entry.id.0.as_str());
+        shortest_depths.remove(entry.id.0.as_str());
+    }
+    let mut by_depth: BTreeMap<usize, usize> = BTreeMap::new();
+    for depth in shortest_depths.into_values() {
+        *by_depth.entry(depth).or_default() += 1;
     }
 
     found.sort_by_key(|path| (path.origin.clone(), path.depth, path.target_key.clone()));
@@ -406,10 +430,11 @@ pub(super) fn explore_flow<'a>(
         .diagnostics
         .iter()
         .filter(|diagnostic| {
-            diagnostic
-                .entities
-                .iter()
-                .any(|entity| affected.contains(entity.0.as_str()))
+            diagnostic.status == DiagnosticStatus::Open
+                && diagnostic
+                    .entities
+                    .iter()
+                    .any(|entity| affected.contains(entity.0.as_str()))
         })
         .count();
 
@@ -445,10 +470,7 @@ pub(super) fn explore_flow<'a>(
             open_diagnostics,
             by_depth: by_depth
                 .into_iter()
-                .map(|(depth, entities)| ExploreBlastDepth {
-                    depth,
-                    entities: entities.len(),
-                })
+                .map(|(depth, entities)| ExploreBlastDepth { depth, entities })
                 .collect(),
             files: all_files
                 .into_iter()

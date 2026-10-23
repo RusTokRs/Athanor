@@ -58,9 +58,7 @@ pub fn trust_adapter_plugin(options: AdapterTrustOptions) -> Result<VersionedAda
         schema: ADAPTER_TRUST_REPORT_SCHEMA_V1.to_string(),
         trust_path: options.trust_path,
         plugins: vec![super::plugin_trust_status::status_from_record(
-            &registry,
-            &plugin,
-            trusted,
+            &registry, &plugin, trusted,
         )?],
     })
 }
@@ -127,12 +125,18 @@ fn resolve_untrust_path(path: &Path) -> Result<PathBuf> {
             format!("failed to canonicalize adapter manifest {}", path.display())
         });
     }
-    std::path::absolute(path).with_context(|| {
+    let absolute = std::path::absolute(path).with_context(|| {
         format!(
             "failed to resolve adapter untrust path {} against the current directory",
             path.display()
         )
-    })
+    })?;
+    if let (Some(parent), Some(file_name)) = (absolute.parent(), absolute.file_name())
+        && let Ok(parent) = parent.canonicalize()
+    {
+        return Ok(parent.join(file_name));
+    }
+    Ok(absolute)
 }
 
 fn trust_path_matches(stored: &Path, requested: &Path) -> bool {

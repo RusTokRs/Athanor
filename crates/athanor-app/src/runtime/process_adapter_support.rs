@@ -1,10 +1,6 @@
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
@@ -24,10 +20,10 @@ pub(super) struct ProcessCommand {
     pub(super) clear_environment: bool,
     pub(super) limits: ProcessLimits,
     pub(super) expected: Vec<TrustedAdapterExecutable>,
-    pub(super) fully_verified: Arc<AtomicBool>,
 }
 
 impl ProcessCommand {
+    #[cfg(test)]
     pub(super) fn from_manifest(
         manifest_dir: &Path,
         command: &AdapterProcessCommand,
@@ -64,7 +60,6 @@ impl ProcessCommand {
             clear_environment,
             limits,
             expected,
-            fully_verified: Arc::new(AtomicBool::new(false)),
         })
     }
 
@@ -86,9 +81,6 @@ impl ProcessCommand {
                 );
             }
         }
-        if self.fully_verified.load(Ordering::Acquire) {
-            return Ok(());
-        }
         for expected in &self.expected {
             let content_hash = plugin_hash::executable(&expected.program)?;
             if content_hash != expected.content_hash {
@@ -98,7 +90,6 @@ impl ProcessCommand {
                 );
             }
         }
-        self.fully_verified.store(true, Ordering::Release);
         Ok(())
     }
 }

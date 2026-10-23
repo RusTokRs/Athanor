@@ -70,6 +70,40 @@ fn config_doctor_json_matches_typed_report_shape() {
 }
 
 #[test]
+fn config_doctor_reports_surreal_capability_and_human_details() {
+    let root = temp_root("doctor-surreal");
+    fs::write(
+        root.join("athanor.toml"),
+        "[storage]\nmode = \"surreal-memory\"\n",
+    )
+    .expect("write SurrealDB config");
+    let output = run(&[
+        "config",
+        "doctor",
+        "--path",
+        root.to_str().expect("UTF-8 temp path"),
+    ]);
+    assert!(output.status.success(), "stderr: {}", stderr(&output));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (status, detail) = if cfg!(feature = "store-surreal") {
+        ("available", "SurrealDB storage is compiled into this build")
+    } else {
+        (
+            "requires-feature",
+            "SurrealDB storage modes require the ath store-surreal feature",
+        )
+    };
+    assert!(
+        stdout.contains(&format!("storage backend: {status} — {detail}")),
+        "unexpected doctor output: {stdout}"
+    );
+    assert!(stdout.contains("clean_environment clears inherited environment variables"));
+
+    cleanup(&root);
+}
+
+#[test]
 fn config_validate_rejects_unknown_fields_before_output() {
     let root = temp_root("invalid");
     fs::write(root.join("athanor.toml"), "unknown = true\n").expect("write invalid config");

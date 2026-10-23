@@ -66,6 +66,8 @@ Phase ownership is split across:
 The production runtime can assemble built-in and trusted external adapters. Current built-in families
 cover filesystem inventory, Markdown, Rust, OpenAPI, GraphQL, JavaScript/TypeScript, operations
 sources, API and Markdown linking/checking, plus opt-in RusTok FFA/FBA/Page Builder adapters.
+Filesystem discovery requires portable UTF-8 relative paths, rejects canonical file/directory escapes
+through symlinks, and visits each canonical directory once so directory symlink cycles cannot loop.
 
 External process adapters retain their schema-less typed request/response protocol. Their execution
 uses bounded stdin/stdout/stderr, explicit working directories, allowlists, trust hashes, timeouts,

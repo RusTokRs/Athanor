@@ -64,9 +64,7 @@ impl ExcerptReader {
         if source.path.is_empty() {
             return None;
         }
-        let Some(line_start) = source.line_start.filter(|line| *line > 0) else {
-            return None;
-        };
+        let line_start = source.line_start.filter(|line| *line > 0)?;
         let line_end = source.line_end.unwrap_or(line_start).max(line_start);
         if self.failed.contains(&source.path) {
             self.unread += 1;
@@ -107,19 +105,11 @@ fn resolve_source_path(root: &Path, relative: &str) -> Option<PathBuf> {
         }
     }
     let joined = root.join(path);
-    match (root.canonicalize(), joined.canonicalize()) {
-        (Ok(root_canon), Ok(joined_canon)) => {
-            let root_canon = normalize_canonical_path(root_canon);
-            let joined_canon = normalize_canonical_path(joined_canon);
-            if joined_canon.starts_with(&root_canon) {
-                Some(joined_canon)
-            } else {
-                None
-            }
-        }
-        (Ok(_), Err(_)) => Some(joined),
-        _ => Some(joined),
-    }
+    let root_canon = normalize_canonical_path(root.canonicalize().ok()?);
+    let joined_canon = normalize_canonical_path(joined.canonicalize().ok()?);
+    joined_canon
+        .starts_with(&root_canon)
+        .then_some(joined_canon)
 }
 
 fn read_excerpt(
@@ -135,8 +125,9 @@ fn read_excerpt(
     let reader = BufReader::new(file);
     let cap_end = line_start.saturating_add(MAX_EXCERPT_LINES as u32 - 1);
     let take_end = line_end.min(cap_end);
-    let mut collected = Vec::new();
+    let mut text = String::new();
     let mut last = line_start;
+    let mut has_lines = false;
     let mut truncated = false;
     for (index, line) in reader.lines().enumerate() {
         let number = index as u32 + 1;
@@ -146,31 +137,41 @@ fn read_excerpt(
         if number > take_end {
             break;
         }
-        let mut line = line.ok()?;
-        if line.len() > MAX_EXCERPT_BYTES {
-            let mut end = MAX_EXCERPT_BYTES;
-            while end > 0 && !line.is_char_boundary(end) {
-                end -= 1;
-            }
-            line.truncate(end);
+        let line = line.ok()?;
+        let separator_bytes = usize::from(has_lines);
+        let remaining = MAX_EXCERPT_BYTES - text.len();
+        let available = remaining.saturating_sub(separator_bytes);
+        if separator_bytes > remaining || (!line.is_empty() && available == 0) {
             truncated = true;
+            break;
         }
-        collected.push(line);
+        let mut end = line.len().min(available);
+        while end > 0 && !line.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end == 0 && !line.is_empty() {
+            truncated = true;
+            break;
+        }
+        if has_lines {
+            text.push('\n');
+        }
+        text.push_str(&line[..end]);
+        has_lines = true;
         last = number;
+        if end < line.len() {
+            truncated = true;
+            break;
+        }
+        if text.len() == MAX_EXCERPT_BYTES && number < take_end {
+            truncated = true;
+            break;
+        }
     }
-    if collected.is_empty() {
+    if !has_lines {
         return None;
     }
     truncated |= last < line_end;
-    let mut text = collected.join("\n");
-    if text.len() > MAX_EXCERPT_BYTES {
-        let mut end = MAX_EXCERPT_BYTES;
-        while end > 0 && !text.is_char_boundary(end) {
-            end -= 1;
-        }
-        text.truncate(end);
-        truncated = true;
-    }
     Some(ExploreExcerpt {
         source_file: source_file.to_string(),
         line_start,
@@ -217,6 +218,36 @@ mod tests {
         assert!(excerpt.text.starts_with("line1\n"));
         assert!(excerpt.text.ends_with("line32"));
 
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn byte_clipping_reports_the_last_line_actually_inlined() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-explore-excerpt-bytes-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let first = "a".repeat(3_000);
+        let second = "b".repeat(2_000);
+        let third = "c".repeat(100);
+        std::fs::write(
+            root.join("file.rs"),
+            format!("{first}\n{second}\n{third}\n"),
+        )
+        .unwrap();
+
+        let excerpt = read_excerpt(&root.join("file.rs"), "file.rs", 1, 3).unwrap();
+
+        assert_eq!(excerpt.line_end, 2);
+        assert_eq!(excerpt.text.len(), MAX_EXCERPT_BYTES);
+        assert!(excerpt.text.starts_with(&first));
+        assert!(excerpt.text.ends_with(&"b".repeat(1_095)));
+        assert!(!excerpt.text.contains('c'));
+        assert!(excerpt.truncated);
         std::fs::remove_dir_all(root).unwrap();
     }
 }

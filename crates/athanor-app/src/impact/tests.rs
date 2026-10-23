@@ -109,6 +109,19 @@ fn traverses_impact_correctly() {
     assert_eq!(analysis.impacted_diagnostics.len(), 1);
     assert_eq!(analysis.impacted_diagnostics[0].id.0, "diag_1");
 
+    let mut closed = snapshot.diagnostics[0].clone();
+    closed.id = DiagnosticId("diag_resolved".to_string());
+    closed.status = DiagnosticStatus::Resolved;
+    closed.entities = vec![caller.id.clone()];
+    let mut suppressed = closed.clone();
+    suppressed.id = DiagnosticId("diag_suppressed".to_string());
+    suppressed.status = DiagnosticStatus::Suppressed;
+    let mut with_closed = snapshot.clone();
+    with_closed.diagnostics.extend([closed, suppressed]);
+    let filtered = impact_snapshot(&with_closed, vec![callee.clone()], 10);
+    assert_eq!(filtered.impacted_diagnostics.len(), 1);
+    assert_eq!(filtered.impacted_diagnostics[0].id.0, "diag_1");
+
     let doc_impact = analysis
         .impacted_entities
         .iter()
