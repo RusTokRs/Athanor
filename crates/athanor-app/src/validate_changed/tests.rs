@@ -48,7 +48,7 @@ fn real_git_status_is_scoped_to_a_nested_project_root() {
     let root = temp_root("nested-git");
     fs::create_dir_all(root.join("project/src")).unwrap();
     fs::create_dir_all(root.join("outside")).unwrap();
-    let root = root.canonicalize().unwrap();
+    let root = normalize_canonical_path(root.canonicalize().unwrap());
     let project = root.join("project");
     git(&root, &["init", "--quiet"]);
     fs::write(project.join("src/lib.rs"), "fn inside() {}\n").unwrap();
@@ -68,7 +68,7 @@ fn real_git_status_is_scoped_to_a_nested_project_root() {
 fn index_state_fallback_detects_new_files_without_git() {
     let root = temp_root("non-git-new-file");
     fs::create_dir_all(&root).unwrap();
-    let root = root.canonicalize().unwrap();
+    let root = normalize_canonical_path(root.canonicalize().unwrap());
     fs::write(root.join("new.rs"), "fn new() {}\n").unwrap();
 
     let report = changed_paths_from_index_state(&root, &crate::IndexState::empty()).unwrap();
