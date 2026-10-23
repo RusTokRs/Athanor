@@ -57,10 +57,9 @@ large speculative implementation batches:
 3. Run the required local verification for the files changed.
 4. When the real Rustok repository is available, run the narrowest useful probe first. For
    changed frontend/parser slices, prefer `ath validate-changed --path <repo> --file <path>`
-   for the exact file under repair, then `ath validate-changed --path <repo>` for the full changed
-   set before a writable index; it extracts only selected or changed files and reports extractor
-   diagnostics without writing a snapshot or read model. Then run bounded commands such as
-   `ath index`, `ath overview`,
+   for the exact file, then `ath validate-changed --path <repo>` before a writable index; nested
+   Git roots stay scoped and the non-Git fallback includes new files. Validation reports extractor
+   diagnostics without publication. Then run bounded commands such as `ath index`, `ath overview`,
    `ath coverage`, `ath check rustok-*`, `ath rustok ... audit`, `ath graph ...`, and
    `ath context ...` when the slice needs full-graph validation.
 5. Choose the real-repository probes by the surface being changed. Rust backend and Rust-native

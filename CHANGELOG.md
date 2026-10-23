@@ -63,6 +63,7 @@ substantive release notes.
   the declared `serde` dependency, score-ordered `TopDocs`, and a 0.2 cosine-similarity floor.
 - Enforce external-process deadlines and cancellation while draining inherited output pipes, terminate remaining Unix process-group members, and preserve canonical Windows untrust paths after manifest removal.
 - Reindex cached Rust and JS/TS receiver evidence after parser and factory-binding repairs; index state bumps v95→v96 so unchanged files cannot retain stale relations.
+- Scope changed-file validation to nested Git roots, include new files without Git, preserve Unix backslashes, reject non-UTF-8 or escaping source paths, and stop directory symlink cycles.
 
 ## [0.2.1] - 2026-07-23
 

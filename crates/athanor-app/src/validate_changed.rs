@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::config::load_config;
 use crate::index::repo_id_for_root;
 use crate::index_state::{AffectedFileSet, IndexStateStore};
-use crate::local_source::read_source_file_at;
+use crate::local_source::{discover_source_files, read_source_file_at};
 use crate::project_path::{normalize_canonical_path, normalize_requested_file};
 use crate::transient_store::TransientKnowledgeStore;
 use crate::{IndexPipelineMetrics, RuntimeBuilder, RuntimeComposition};
@@ -55,9 +55,10 @@ async fn validate_changed_inner(
     let state_store = IndexStateStore::new(root.join(".athanor/state/index-state.json"));
     let previous_state = state_store.load().context("failed to load index state")?;
     let changed = if options.files.is_empty() {
-        changed_paths_from_git(&root)
-            .context("failed to inspect git changes")?
-            .unwrap_or_else(|| changed_paths_from_index_state(&root, &previous_state))
+        match changed_paths_from_git(&root).context("failed to inspect git changes")? {
+            Some(changed) => changed,
+            None => changed_paths_from_index_state(&root, &previous_state)?,
+        }
     } else {
         changed_paths_from_requested_files(&root, &options.files)?
     };
@@ -130,6 +131,22 @@ impl SourceProvider for SelectedFilesSource {
 }
 
 fn changed_paths_from_git(root: &Path) -> Result<Option<ChangedPaths>> {
+    let prefix = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--show-prefix"])
+        .output();
+    let Ok(prefix) = prefix else {
+        return Ok(None);
+    };
+    if !prefix.status.success() {
+        return Ok(None);
+    }
+    let mut prefix = prefix.stdout;
+    if prefix.last() == Some(&b'\n') {
+        prefix.pop();
+    }
+
     let output = Command::new("git")
         .arg("-C")
         .arg(root)
@@ -137,6 +154,8 @@ fn changed_paths_from_git(root: &Path) -> Result<Option<ChangedPaths>> {
         .arg("--porcelain=v1")
         .arg("-z")
         .arg("--untracked-files=all")
+        .arg("--")
+        .arg(".")
         .output();
     let Ok(output) = output else {
         return Ok(None);
@@ -145,32 +164,20 @@ fn changed_paths_from_git(root: &Path) -> Result<Option<ChangedPaths>> {
         return Ok(None);
     }
 
-    Ok(Some(parse_git_status_z(&output.stdout)))
+    let paths = parse_git_status_z(&output.stdout, &prefix)?;
+    normalize_changed_paths(root, paths).map(Some)
 }
 
-fn changed_paths_from_index_state(root: &Path, state: &crate::IndexState) -> ChangedPaths {
-    let mut changed = BTreeSet::new();
-    let mut removed = BTreeSet::new();
-
-    for (path, previous) in &state.files {
-        let relative = Path::new(path);
-        match read_source_file_at(root, relative) {
-            Ok(Some(source))
-                if source.content_hash == previous.content_hash
-                    && source.language_hint == previous.language_hint => {}
-            Ok(Some(_)) => {
-                changed.insert(path.clone());
-            }
-            Ok(None) => {
-                removed.insert(path.clone());
-            }
-            Err(_) => {
-                changed.insert(path.clone());
-            }
-        }
-    }
-
-    ChangedPaths { changed, removed }
+fn changed_paths_from_index_state(root: &Path, state: &crate::IndexState) -> Result<ChangedPaths> {
+    let current = discover_source_files(root)?;
+    let affected = state.affected_files(&current);
+    normalize_changed_paths(
+        root,
+        ChangedPaths {
+            changed: affected.changed,
+            removed: affected.removed,
+        },
+    )
 }
 
 fn changed_paths_from_requested_files(root: &Path, files: &[PathBuf]) -> Result<ChangedPaths> {
@@ -189,7 +196,7 @@ fn changed_paths_from_requested_files(root: &Path, files: &[PathBuf]) -> Result<
     Ok(ChangedPaths { changed, removed })
 }
 
-fn parse_git_status_z(output: &[u8]) -> ChangedPaths {
+fn parse_git_status_z(output: &[u8], prefix: &[u8]) -> Result<ChangedPaths> {
     let mut changed = BTreeSet::new();
     let mut removed = BTreeSet::new();
     let mut entries = output
@@ -202,7 +209,6 @@ fn parse_git_status_z(output: &[u8]) -> ChangedPaths {
         }
         let x = entry[0] as char;
         let y = entry[1] as char;
-        let path = String::from_utf8_lossy(&entry[3..]).replace('\\', "/");
         let renamed = x == 'R' || y == 'R';
         let copied = x == 'C' || y == 'C';
         let source = if renamed || copied {
@@ -210,42 +216,50 @@ fn parse_git_status_z(output: &[u8]) -> ChangedPaths {
         } else {
             None
         };
-        if !path.starts_with(".athanor/") {
-            if x == 'D' || y == 'D' {
-                removed.insert(path);
-            } else {
-                changed.insert(path);
+        if let Some(path) = project_git_path(&entry[3..], prefix)? {
+            if !path.starts_with(".athanor/") {
+                if x == 'D' || y == 'D' {
+                    removed.insert(path);
+                } else {
+                    changed.insert(path);
+                }
             }
         }
-        if renamed && let Some(source) = source {
-            let source = String::from_utf8_lossy(source).replace('\\', "/");
-            if !source.starts_with(".athanor/") {
-                removed.insert(source);
-            }
+        if renamed
+            && let Some(source) = source
+            && let Some(source) = project_git_path(source, prefix)?
+            && !source.starts_with(".athanor/")
+        {
+            removed.insert(source);
         }
     }
 
-    ChangedPaths { changed, removed }
+    Ok(ChangedPaths { changed, removed })
+}
+
+fn project_git_path(path: &[u8], prefix: &[u8]) -> Result<Option<String>> {
+    let Some(path) = path.strip_prefix(prefix).filter(|path| !path.is_empty()) else {
+        return Ok(None);
+    };
+    let path = std::str::from_utf8(path).context("Git reported a non-UTF-8 project path")?;
+    Ok(Some(path.to_string()))
+}
+
+fn normalize_changed_paths(root: &Path, paths: ChangedPaths) -> Result<ChangedPaths> {
+    let normalize = |path: String| normalize_requested_file(root, Path::new(&path));
+    Ok(ChangedPaths {
+        changed: paths
+            .changed
+            .into_iter()
+            .map(normalize)
+            .collect::<Result<_>>()?,
+        removed: paths
+            .removed
+            .into_iter()
+            .map(normalize)
+            .collect::<Result<_>>()?,
+    })
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_git_status_z_changed_removed_and_renamed_paths() {
-        let report = parse_git_status_z(
-            b" M src/lib.rs\0D  docs/old.md\0?? apps/admin/app.tsx\0R  docs/new.md\0docs/old-name.md\0C  docs/copied.md\0docs/source.md\0",
-        );
-
-        assert!(report.changed.contains("src/lib.rs"));
-        assert!(report.changed.contains("apps/admin/app.tsx"));
-        assert!(report.changed.contains("docs/new.md"));
-        assert!(report.changed.contains("docs/copied.md"));
-        assert!(report.removed.contains("docs/old.md"));
-        assert!(report.removed.contains("docs/old-name.md"));
-        assert!(!report.changed.contains("docs/old-name.md"));
-        assert!(!report.changed.contains("docs/source.md"));
-        assert!(!report.removed.contains("docs/source.md"));
-    }
-}
+mod tests;

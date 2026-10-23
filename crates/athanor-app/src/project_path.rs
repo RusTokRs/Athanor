@@ -67,16 +67,27 @@ pub(crate) fn normalize_requested_file(root: &Path, file: &Path) -> Result<Strin
         }
     }
 
-    Ok(relative
-        .components()
-        .filter_map(|component| match component {
-            Component::Normal(part) => Some(part.to_string_lossy()),
-            Component::CurDir => None,
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("/")
-        .replace('\\', "/"))
+    portable_relative_path(relative)
+}
+
+pub(crate) fn portable_relative_path(relative: &Path) -> Result<String> {
+    let mut normalized = Vec::new();
+    for component in relative.components() {
+        match component {
+            Component::Normal(part) => {
+                let part = part.to_str().with_context(|| {
+                    format!("{} is not a UTF-8 project path", relative.display())
+                })?;
+                normalized.push(part.to_string());
+            }
+            Component::CurDir => {}
+            _ => anyhow::bail!("{} is not a portable relative path", relative.display()),
+        }
+    }
+    if normalized.is_empty() {
+        anyhow::bail!("{} is not a portable relative path", relative.display());
+    }
+    Ok(normalized.join("/"))
 }
 
 #[cfg(test)]
@@ -106,6 +117,24 @@ mod tests {
             .expect_err("parent-directory input must be rejected");
 
         assert!(error.to_string().contains("is outside"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_unix_backslashes_and_rejects_non_utf8_paths() {
+        use std::os::unix::ffi::OsStringExt;
+
+        let root = std::env::current_dir().unwrap();
+        assert_eq!(
+            normalize_requested_file(&root, Path::new("src/back\\slash.rs")).unwrap(),
+            "src/back\\slash.rs"
+        );
+        let invalid = PathBuf::from(std::ffi::OsString::from_vec(vec![
+            b's', b'r', b'c', b'/', 0xff,
+        ]));
+        let error = normalize_requested_file(&root, &invalid)
+            .expect_err("non-UTF-8 requested paths must fail closed");
+        assert!(error.to_string().contains("not a UTF-8"));
     }
 
     #[cfg(unix)]
