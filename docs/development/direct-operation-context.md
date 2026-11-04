@@ -10,8 +10,7 @@ status: implemented
 ## Scope
 
 This document describes the shared cancellation and deadline contract used by direct CLI operations
-and the MCP stdio transport. The source implementation is present in `main`; formatting, tests,
-Clippy, and executable interoperability remain pending for the current HEAD.
+and the MCP stdio transport. The source implementation is present in `main`. Formatting, workspace tests, Clippy, and executable interoperability are exact-commit verified on `2f6793399376e3c5db31f1d40eed76e6494c39fb` by CI `39903375360`; later changes require fresh evidence.
 
 Covered direct CLI command families include Context, Explain, Overview, Impact, Change Map, Search,
 Check, standard Graph reads, RusTok audit/graph reads, and Index.
@@ -175,10 +174,9 @@ queue.
 - Explicit `null` ids receive responses with `id: null`.
 - Overload rejection remains retryable when it can be admitted to the bounded response queue.
 
-## Remaining Work
+## Verification State
 
-- Execute the Rust formatting, test, Clippy, stdio, disconnect, cancellation, saturation, and
-  worker-drain matrix on one current commit.
+- Rust formatting, tests, Clippy, stdio, disconnect, cancellation, saturation, and worker-drain coverage are exact-commit verified on `2f6793399376e3c5db31f1d40eed76e6494c39fb` by CI `39903375360`. Re-run the focused matrix below for later transport or operation-context changes.
 
 ## Verification
 

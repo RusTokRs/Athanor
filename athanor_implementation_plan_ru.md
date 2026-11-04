@@ -25,6 +25,11 @@ Release baseline `609027eb02caa05346ebfea8538552c42b588c31`:
 CI `29995959544`, AppSec `29995960063`, Store `29995959512`, Release `29996579628`, clean-install
 smoke `29998347890`. Annotated `v0.2.1` указывает на этот SHA.
 
+Current verified code-intelligence baseline `2f6793399376e3c5db31f1d40eed76e6494c39fb`:
+CI `39903375360`, AppSec `39903375439`, Store `39903375381`; P2X–P2BD и P5c входят в этот exact matrix.
+Ветка `arena/bd8a0181-athanor` готовит `v0.3.0`; версия и dated changelog не означают публикацию. Перед
+tag/release требуется новый exact candidate на `main` с успешными CI/AppSec/Store и Production Gate.
+
 Documentation generation:
 
 - Slices 0A–0B: `2a049303e797f00ac53f1e91fc010f284993926d`, CI `30005828864`, AppSec

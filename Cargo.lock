@@ -388,7 +388,7 @@ dependencies = [
 
 [[package]]
 name = "ath"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "athanor-app",
@@ -863,7 +863,7 @@ dependencies = [
 
 [[package]]
 name = "athd"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "athanor-app",

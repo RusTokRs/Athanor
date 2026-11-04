@@ -1,0 +1,4 @@
+# False positive: "deterministic keys" in historical Slice 8A documentation.
+# The match is ordinary prose, not a credential. Keep this exception bound to
+# the exact commit, path, rule, and line instead of suppressing a rule or file.
+896936dd5d6dc596ec8e86dc8f3107adc5245f4d:athanor_implementation_plan_ru.md:generic-api-key:213

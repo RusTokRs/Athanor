@@ -2306,60 +2306,22 @@ cargo test -p athanor-transport-mcp --locked
 
 ## Current Status
 
-Slice P1 is source-implemented and carries focused unit tests in `athanor-extractor-js-ts` and
-`athanor-linker-js-ts`. The original P2 `Implements` bridges are source-implemented in both halves.
-P2A adds a separate `Extends` relation for Rust trait supertraits and JS/TS class/interface
-inheritance, updates the impact/ranking/architecture consumers, and bumps index state to v47; focused
-Rust/TypeScript regressions are included; CI run `38722056518` on `4a23498` passed the full format,
-test, Clippy, smoke, docs, security, feature, and coverage matrix. P2B is verified by GitHub Actions
-run `38742833180` on `5b5f8a1`, including the complete Rust 1.95 matrix on Ubuntu, macOS, and Windows,
-source coverage, feature matrices, and the companion docs/security/store gates. P2C adds bounded
-source-backed wildcard re-export resolution with v49 index-state rebuilds; exact-commit GitHub
-Actions run `38748788007` on `49444d5` passed. P2D adds named default-function import/re-export
-resolution and the v50 index-state rebuild; exact-commit GitHub Actions run `38757025492` on
-`c105cad` passed on Ubuntu, macOS, and Windows, including workspace tests, Clippy, feature matrices,
-coverage, smoke, and editable-doc checks. P2E adds direct `export * as name` mappings for single-member
-calls through named imports, keeps missing/ambiguous/cyclic/over-limit namespace targets unresolved,
-and bumps index state to v51. Exact-commit CI run `38772624382` on `6aefc28` passed the Ubuntu,
-macOS, and Windows Rust 1.95 matrix, all feature matrices, source coverage, smoke, Clippy, editable docs,
-and companion AppSec, store, production, and documentation checks. The Windows process-test fixtures
-write byte-exact data to redirected standard streams, and CI panic summaries now preserve assertion
-context. Slice P4
-is covered by the shipped `operations`
-documentation profile
-(DOCGEN-001 Slices 4A–4C); its monitoring category derives declared health, status, and metrics endpoints
-and telemetry environment-variable names from canonical evidence, while container and Kubernetes probes,
-alert rules, dashboards, and SLOs still need their own evidence source before they may be documented. Slice P5 is source-implemented as the bounded `explore` MCP tool: one query
-returns search-ranked entries, their citations, and the one-hop relation neighbourhood with disclosed
-budgets. Slice P5b adds the multi-hop code-flow chains, the aggregate blast radius, an exact
-stable-key/path anchor, and the `ath explore` command over the same report. Slice P5c inlines the
-cited declaration range of each entry and path target, clipped to 32 lines and 4,096 bytes, so the
-single-call answer includes source without becoming a file dump; daemon-served freshness stays open
-on axis C5. That P5b
-slice is exact-commit verified on `c48ca69` (CI run `38869503550`, AppSec `38869503667`, Store Conformance
-`38869503725`), covering the workspace suite, Clippy `-D warnings`, `cargo fmt --check`, the indexing smoke,
-and `ath docs check` across ubuntu, windows, and macos; the axis stays open because the remaining C1/C2
-coverage and C5 freshness gaps are untouched. Slice P2G adds callback and promise-handler bridges: the extractor records bounded
-`callback_arguments` on allowlisted combinator call sites, and the call linker resolves each
-recorded argument through the existing ordered rules into an evidence-backed indirect `Calls`
-edge with reason `js_ts_callback_bridge`, bumping both index-state schema families from v52 to
-v53. Slice P2H binds named default class exports and admits classes as resolvable call
-targets: `export default class Foo {}` records its default name, a default import of it
-resolves a `new Foo()` site with reason `imported_default_export`, and a same-module
-construction resolves with `same_module_exact_name`, bumping both index-state schema
-families from v53 to v54; anonymous default expressions and anonymous default classes stay
-unbound. Slice P2I resolves multi-hop namespace aliases: a namespace name forwarded across
-modules by source-backed named re-exports resolves a single member call through the declaring
-`export * as name` clause, renamed or same-name, within the existing 32-hop and 1,024-visit
-bounds, bumping both index-state schema families from v54 to v55; ambiguous, cyclic, and
-over-bound forwarded chains stay unresolved. Slice P3 is source-implemented as `builtin.extractor.treesitter`: one engine walks a
-per-language pack of node kinds and field names and records declaration, import, export, and call
-evidence for Python and Go, with the existing cross-file linkers still owning resolution. Historical
-exact-commit verification for P1, the pre-P2A P2 slice, and P5 is green on `191c65e` (sandbox
-diagnostics run `38152033388`); it does not verify P2A or the current source state. The P3 engine and
-packs are green on `e07547e` (run `38157055780`), and the monitoring category is green on
-`69d8918` (run `38160162759`); each run reports every log PASSED with a
-`rustfmt` diff of 0 lines, and each commit's repository check matrix is fully successful or intentionally
-skipped. Cross-file resolution for Python and Go, and the published coverage measurement, stay open, so P3
-is implemented-and-verified but not complete. The status ledger in `roadmap-status.md` carries this
-evidence.
+The implemented parity baseline is exact-commit verified on `2f6793399376e3c5db31f1d40eed76e6494c39fb`:
+CI `39903375360`, AppSec `39903375439`, and Store Conformance `39903375381` are green. The CI matrix covers
+Rust 1.95 on Ubuntu, Windows, and macOS; formatting, workspace tests, Clippy, indexing smoke, editable docs,
+feature combinations, source coverage, and security/license checks.
+
+- P1 and P2 through P2BD are implemented and verified: Rust and JS/TS have cross-file calls, heritage,
+  bounded receiver/factory/type resolution, callback bridges, and symbol-level invalidation. Resolution remains
+  fail-closed where the source does not state enough evidence; the remaining P2 gaps above are intentional.
+- P3 ships the generic tree-sitter engine, Python and Go packs, cross-file import/call/test linking, and
+  per-language resolution coverage. Python/Go receiver typing beyond the caller's own receiver, wildcard
+  imports, and dynamic dispatch remain open.
+- P4/P4b ship deterministic operations and monitoring documentation. Probes, alerts, dashboards, and SLOs
+  still require extractor evidence before they can be documented.
+- P5/P5b/P5c ship one bounded CLI/MCP `explore` response with ranked declarations, cited source excerpts,
+  one-hop links, multi-hop chains, and aggregate blast radius. Daemon-served multi-repository exploration and
+  auto-synced freshness signals remain open on axis C5.
+
+This section supersedes older source-state statements in the detailed slice history above. Historical evidence
+records remain useful, but they do not describe the current verification state by themselves.

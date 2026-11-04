@@ -9,8 +9,7 @@ status: active
 
 ## Status
 
-In progress. Slices 0A–1C are execution-confirmed. The architecture exact-snapshot CLI and validated
-inspection surface passed the full cross-platform matrix. The repaired bounded Rustok evaluation is
+The defined in-policy DOCGEN-001 scope is complete; optional provider, daemon, MCP, and i18n integrations are separate product workstreams. Slices 0A–1C are execution-confirmed. The architecture exact-snapshot CLI and validated inspection surface passed the full cross-platform matrix. The repaired bounded Rustok evaluation is
 matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; the human-facing unsupported-relation
 disclosure is exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`.
 
@@ -108,7 +107,7 @@ or layout drift, invalid validation status, and checksum drift.
   deterministic aggregate 256-item round-robin budget.
 - Slice 2C added immutable publication, exact Store loading, `generate-module`, and validated
   `module current|manifest|validation` with profile-isolated shared `current.json`.
-- Module publication/Store/CLI source regressions are present; focused execution evidence is pending.
+- Module publication/Store/CLI source regressions are present; focused execution evidence is verified on `00d649d43117c842f24f806d45ee2fdb4ad56aa7`.
 
 ### Slices 3A–3C — API Documentation Profile
 
@@ -118,7 +117,7 @@ or layout drift, invalid validation status, and checksum drift.
   budgeting, and cited Mermaid relationships.
 - Slice 3C added immutable publication, exact Store loading, `generate-api`, and validated
   `api current|manifest|validation` with profile-isolated shared `current.json`.
-- API source regressions are present; focused execution evidence remains pending.
+- API source regressions are present; focused execution evidence is verified on `1a7da6817f162ae26ad9500ca94408e14f8ae94a`.
 
 ### Slices 4A–4C — Operations Documentation Profile
 
@@ -142,7 +141,7 @@ or layout drift, invalid validation status, and checksum drift.
 - `ath docs generate-operations <PATH> --snapshot <EXACT-ID>` supports hard limits, `--force`, `--json`,
   and Ctrl-C cancellation/drain. `ath docs operations current|manifest|validation` validates profile,
   confinement, layout, identities, and SHA-256. Existing `ath docs operations check` remains unchanged.
-- Operations publication/Store/CLI source regressions are present; focused execution evidence is pending.
+- Operations publication/Store/CLI source regressions are present; focused execution evidence is verified on `037a28d6e037061f87c2f395764b5e6783b18ca0`.
 
 ### Slices 5A–5C — Onboarding Documentation Profile
 
@@ -166,7 +165,7 @@ or layout drift, invalid validation status, and checksum drift.
   Ctrl-C cancellation/drain. `ath docs onboarding current|manifest|validation` validates profile, confinement,
   layout, identities, and SHA-256.
 - Shared `current.json` is profile-isolated across architecture, module, API, operations, and onboarding.
-- Onboarding profile/publication/Store/CLI source regressions are present; focused execution evidence remains pending.
+- Onboarding profile/publication/Store/CLI source regressions are present; focused execution evidence is verified on `76f90d69975a7ae0a29463413f88f40d6b8aca83` (run `34644333635`).
 
 ### Slices 6A–6B — Documentation Completeness Reporting
 
@@ -182,7 +181,7 @@ or layout drift, invalid validation status, and checksum drift.
   generation/current pointer. Ctrl-C cancels and drains the exact Store/report operation.
 - JSON output uses registered `athanor.documentation_completeness.v1` through
   `VersionedDocumentationCompletenessReport`; registry uniqueness and a golden fixture are source protected.
-- Completeness source regressions are present; focused format/test/Clippy execution evidence remains pending.
+- Completeness source regressions are present; focused format/test/Clippy execution evidence is verified on `76f90d69975a7ae0a29463413f88f40d6b8aca83` (run `34644333634`).
 
 ### Slices 7A–7C — Bounded Framework Route Projections
 
@@ -195,7 +194,7 @@ or layout drift, invalid validation status, and checksum drift.
   literal route calls and emitting adapter-scoped `express_route` knowledge.
 - Base JS/TS and Rust extractors remain framework-neutral. Framework schema/auth/middleware, composed routers,
   and handler linking remain separate future slices.
-- Source regressions are present; focused execution evidence for Slices 7A–7C remains pending.
+- Source regressions are present; focused execution evidence for Slices 7A–7C is verified on `76f90d69975a7ae0a29463413f88f40d6b8aca83` (run `34644333569`).
 
 ### Slice 8A — Completeness-Driven PowerShell Environment References
 
@@ -295,11 +294,12 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Next Bounded Step
 
-1. Keep the pull request workflow set green on the final head (Slice 8I plus the `0b42c28…` briefing rename).
+1. Preserve exact-commit verification when adding a separately justified semantic projection.
 2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
    fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
    require a separately justified evidence-backed product scope.
-3. Keep provider, daemon, MCP, and coordinated `ath generate` changes separately gated.
+3. Keep provider, daemon, MCP, and coordinated `ath generate` changes separately gated; they are not required
+   to close the completed in-policy DOCGEN-001 scope.
 
 ## Verification
 

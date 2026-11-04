@@ -11,6 +11,8 @@ substantive release notes.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-04
+
 ### Added
 
 - Add Rust trait-supertrait and JS/TS class/interface `Extends`, preserving Rust/JS/TS `Implements`; bump index state v46→v47.
@@ -50,6 +52,7 @@ substantive release notes.
 
 ### Fixed
 
+- Keep full-history Gitleaks scanning enabled while suppressing one exact historical prose false positive through a commit/path/rule/line-bound fingerprint.
 - Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.

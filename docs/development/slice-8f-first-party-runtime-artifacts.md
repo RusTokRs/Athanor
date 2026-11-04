@@ -10,8 +10,7 @@ status: active
 
 ## Status
 
-Source implementation is landed on `main` through the bounded operations extractor. Focused format/test/
-Clippy verification remains pending; the maintainer runs those checks separately.
+Source implementation is landed on `main` through the bounded operations extractor. Focused format/test/Clippy verification is exact-commit verified together with Slices 8F–8H on `e246a71bcb094cb3553bf6770954a4617dc1a376`.
 
 ## Scope
 

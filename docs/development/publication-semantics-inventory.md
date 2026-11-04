@@ -7,7 +7,7 @@ status: implemented
 ---
 # Publication durability inventory
 
-Status: implementation complete; execution evidence is pending.
+Status: implementation and execution evidence complete on `2f6793399376e3c5db31f1d40eed76e6494c39fb` (CI `39903375360`, AppSec `39903375439`, Store Conformance `39903375381`).
 
 ## Invariant
 
@@ -79,9 +79,9 @@ Implemented in `publication_recovery_matrix.rs`:
 - [x] complete, partial and conflicting cleanup-recovery states remain represented in the source matrix;
 - [x] recovery fails closed when live artifacts conflict with tombstones.
 
-Remaining verification work:
+Verification evidence:
 
-- [ ] execute the rollback, post-commit cleanup, recovery, JSONL conformance and retention matrices against the same commit.
+- [x] the rollback, post-commit cleanup, recovery, JSONL conformance and retention matrices executed against `2f6793399376e3c5db31f1d40eed76e6494c39fb` in the green workspace and Store Conformance workflows.
 
 ## Regression commands
 
@@ -96,4 +96,4 @@ cargo test -p athanor-store-jsonl --test refactored_store --locked
 cargo test -p athanor-store-jsonl --locked
 ```
 
-The inventory is not considered verified until these commands, workspace tests, formatting, and Clippy have executed against the same commit.
+These commands remain the focused regression matrix for future changes. The inventory is verified on the exact commit recorded above; later changes require fresh execution evidence.
