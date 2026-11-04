@@ -202,6 +202,19 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 
 The existing coordinated `ath generate` command remains unchanged.
 
+### Local Documentation Reader — Branch-Local, Verification Blocked
+
+`ath docs serve` source and regression suites are present in the dedicated `athanor-transport-http`
+adapter: loopback-only GET/HEAD, bounded cross-profile generation catalog, checksum/confined Markdown
+and evidence panels, and existing search/Explore HTML/JSON. It does not edit sources, canonical data,
+or published generations; existing retrieval may refresh a derived search cache. No provider,
+daemon/MCP revision, or storage/index-state migration is included.
+
+Workspace formatting and 12 isolated HTTP parser tests passed on Rust 1.99; workspace tests, Clippy,
+and the index smoke gate are blocked by uncached/unreachable crates.io dependencies. This source is
+not exact-commit Verified; the full Rust 1.95 execution matrix remains the next gate. See
+[HTTP reader](../adapters/transport-http.md) for the contract, cache caveat, and deferred scope.
+
 ## Product Backlog
 
 - [x] run the focused verification for Slices 8F–8H and rerun exact completeness/self-evaluation;
@@ -214,6 +227,7 @@ The existing coordinated `ath generate` command remains unchanged.
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
 - [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`, and keep only hits at or above `SEMANTIC_MIN_SIMILARITY` (0.2 cosine) so unrelated documents are not returned as hashing noise;
+- [ ] execute the local documentation reader transport/CLI/schema tests and full workspace gates on Rust 1.95;
 - [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;

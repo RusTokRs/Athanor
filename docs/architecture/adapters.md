@@ -86,6 +86,7 @@ Ownership should list every source file that can invalidate the emitted object. 
 | `athanor-store-jsonl` | `KnowledgeStore`, `CanonicalSnapshotStore` | Durable local JSONL canonical snapshot store. |
 | `athanor-store-surrealdb` | `KnowledgeStore`, `CanonicalSnapshotStore` | Standalone database store adapter backed by SurrealDB. |
 | `athanor-search-tantivy` | `SearchIndex` | Index and search canonical entities using Tantivy. |
+| `athanor-transport-http` | Application entrypoint over docgen/search/Explore contracts | Serve a loopback-only, script-free documentation reader with bounded HTML/JSON queries; no canonical/documentation writes or provider calls. |
 | `athanor-extractor-basic` | `Extractor` | Emit file entities and file discovery facts. |
 | `athanor-extractor-markdown` | `Extractor` | Parse YAML documentation frontmatter and CommonMark/GFM headings, then emit documentation page/section, runbook, and operation-step knowledge. |
 | `athanor-extractor-js-ts` | `Extractor` | Parse JavaScript, JSX, TypeScript, TSX, and `package.json` through tree-sitter grammars, optionally verify normalized JS/TS findings with feature-gated Oxc, then emit source modules, declarations, class/interface heritage, package/dependency entities, definition facts, and evidence-backed parser diagnostics. |
@@ -124,6 +125,12 @@ When a new adapter is added, update:
 - the adapter crate `README.md`
 - the relevant `docs/adapters/*.md` page
 - the built-in registry only if the adapter should run by default
+
+The HTTP documentation transport is an explicit `ath docs serve` entrypoint, not an indexing adapter
+or plugin kind. It receives `RuntimeComposition` from the CLI and keeps HTTP framing, filesystem
+confinement, and browser rendering out of domain/core/app. Existing search/Explore queries may refresh
+a derived search cache, but never publish canonical or documentation data. See
+[HTTP reader](../adapters/transport-http.md) for the bounds and verification status.
 
 The wiki and HTML projectors are invoked by app-layer services rather than the indexing `AdapterRegistry`. Projector registration and plugin manifests remain a later runtime extension.
 

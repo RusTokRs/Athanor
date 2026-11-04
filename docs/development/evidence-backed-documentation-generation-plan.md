@@ -22,7 +22,9 @@ source-implemented on `6fb5e34…`; exact self-evaluation `37292220926` confirms
 JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134250`) reaches `692/735`
 (`9414` bps) with Markdown `151/151`, completing in-policy coverage.
 
-The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
+The existing coordinated `ath generate` command is unchanged. No model provider, daemon, or MCP
+integration is enabled. A separately scoped local HTTP reader is described below; it reuses the
+workspace Markdown parser with its HTML feature rather than changing docgen publication.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -292,9 +294,30 @@ or layout drift, invalid validation status, and checksum drift.
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
+## Separate Product Slice — Local Documentation Reader
+
+Branch-local source adds `ath docs serve` through the `athanor-transport-http` adapter, outside the
+completed DOCGEN-001 extraction/completeness scope. It reads all five profiles' immutable generations,
+not only their shared current pointer; renders bounded Markdown with linked evidence panels; and
+reuses lexical/semantic/hybrid search plus Explore citations, excerpts, chains, and blast radius.
+
+Only loopback GET/HEAD requests are admitted. Declared artifacts are confined and checksum-verified;
+raw HTML, remote resources, editing, canonical writes, publication, providers, and daemon/MCP changes
+are excluded. Existing queries may refresh their disposable derived search cache. Published document
+identities remain exact, while query snapshots and working-tree excerpts are explicitly distinguished.
+See [HTTP reader](../adapters/transport-http.md) for commands, fixed/configurable bounds, schemas, and
+security limitations.
+
+Implementation and unit/CLI regressions are present, but the slice is **not Verified**. Workspace
+formatting and 12 isolated HTTP parser tests were executed with Rust 1.99. Full tests, Clippy, and the
+index smoke gate cannot resolve uncached crates.io dependencies in this environment and still require
+Rust 1.95 CI execution. No current-commit execution matrix is claimed.
+
 ## Next Bounded Step
 
-1. Preserve exact-commit verification when adding a separately justified semantic projection.
+1. Run the local reader's transport/CLI/schema tests and required workspace gates in a dependency-enabled
+   Rust 1.95 environment before promoting this branch-local product slice to Verified. Preserve
+   exact-commit verification when adding a separately justified semantic projection.
 2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
    fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
    require a separately justified evidence-backed product scope.
@@ -305,6 +328,8 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ```bash
 cargo fmt --all -- --check
+cargo test -p athanor-transport-http --locked
+cargo test -p ath --test documentation_serve_cli --locked
 cargo test -p athanor-extractor-operations --locked
 cargo test --workspace --quiet --locked
 cargo clippy --workspace --all-targets --locked -- -D warnings

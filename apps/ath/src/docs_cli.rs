@@ -1,10 +1,13 @@
+use std::io::Write;
+use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use athanor_app::{
-    CancellationToken, DocsApplyPatchOptions, DocsApplyPatchReport, DocsCheckOptions,
-    DocsCheckReport, DocsDriftOptions, DocsDriftReport, DocsProposeFixOptions,
-    DocumentationApiCurrentInspection, DocumentationApiManifestInspection,
+    CancellationToken, DEFAULT_EXPLORE_DEPTH, DEFAULT_EXPLORE_ENTRIES, DocsApplyPatchOptions,
+    DocsApplyPatchReport, DocsCheckOptions, DocsCheckReport, DocsDriftOptions, DocsDriftReport,
+    DocsProposeFixOptions, DocumentationApiCurrentInspection, DocumentationApiManifestInspection,
     DocumentationApiOperationOptions, DocumentationApiPublicationReport,
     DocumentationApiPublicationStatus, DocumentationApiValidationInspection,
     DocumentationArchitectureCurrentInspection, DocumentationArchitectureManifestInspection,
@@ -25,6 +28,7 @@ use athanor_app::{
     inspect_documentation_architecture_validation, inspect_documentation_module_current,
     inspect_documentation_module_manifest, inspect_documentation_module_validation,
 };
+use athanor_transport_http::{BoundDocumentationServer, DocumentationServeOptions};
 use clap::error::ErrorKind;
 use clap::{Parser, Subcommand};
 
@@ -52,6 +56,36 @@ enum RootCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Read published documentation and bounded knowledge queries in a local browser (no LLM).
+    Serve {
+        /// Existing project root. Serving does not index sources or publish documentation.
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Numeric loopback socket address. Port 0 chooses an available port.
+        #[arg(long, default_value = "127.0.0.1:7878")]
+        bind: SocketAddr,
+        /// Default search result count (1–50).
+        #[arg(long, default_value_t = 10)]
+        search_limit: usize,
+        /// Maximum explore entries per request (1–20).
+        #[arg(long, default_value_t = DEFAULT_EXPLORE_ENTRIES)]
+        explore_entries: usize,
+        /// Default explore hop count (1–4).
+        #[arg(long, default_value_t = DEFAULT_EXPLORE_DEPTH)]
+        explore_depth: usize,
+        /// Number of newest generation directories to inspect (1–1000).
+        #[arg(long, default_value_t = 200)]
+        max_generations: usize,
+        /// Maximum raw document size in bytes (1024–67108864).
+        #[arg(long, default_value_t = 4 * 1024 * 1024)]
+        max_document_bytes: u64,
+        /// Separate timeout for request heads, query operations, and writes (1–120 seconds).
+        #[arg(long, default_value_t = 10)]
+        request_timeout_secs: u64,
+        /// Emit one JSON start-up report after binding, then serve until Ctrl-C.
+        #[arg(long)]
+        json: bool,
+    },
     Check {
         #[arg(long, default_value = ".")]
         path: PathBuf,
@@ -272,6 +306,54 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 pub(crate) async fn run(command: Command) -> Result<()> {
     let composition = athanor_runtime_defaults::production();
     match command {
+        Command::Serve {
+            path,
+            bind,
+            search_limit,
+            explore_entries,
+            explore_depth,
+            max_generations,
+            max_document_bytes,
+            request_timeout_secs,
+            json,
+        } => {
+            let mut options = DocumentationServeOptions::new(path, bind);
+            options.search_limit = search_limit;
+            options.explore_entries = explore_entries;
+            options.explore_depth = explore_depth;
+            options.max_generations = max_generations;
+            options.max_document_bytes = max_document_bytes;
+            options.request_timeout = Duration::from_secs(request_timeout_secs);
+            let server = BoundDocumentationServer::bind(options, composition).await?;
+            let report = server.report();
+            if json {
+                println!("{}", serde_json::to_string(&report)?);
+            } else {
+                println!("Athanor documentation: {}", report.url);
+                println!(
+                    "Published generations: {} ({} rejected)",
+                    report.generations, report.invalid_generations
+                );
+                println!(
+                    "Read-only canonical data; search may refresh its derived cache. Press Ctrl-C to stop."
+                );
+            }
+            std::io::stdout()
+                .flush()
+                .context("failed to flush documentation server start-up report")?;
+            let cancellation = CancellationToken::new();
+            let signal_cancellation = cancellation.clone();
+            let mut serving = Box::pin(server.serve(cancellation));
+            tokio::select! {
+                result = &mut serving => result?,
+                signal = tokio::signal::ctrl_c() => {
+                    signal_cancellation.cancel();
+                    let result = serving.await;
+                    signal.context("failed to listen for documentation server cancellation")?;
+                    result?;
+                }
+            }
+        }
         Command::Check { path, json } => {
             let report =
                 check_docs_with_composition(DocsCheckOptions { root: path }, &composition).await?;

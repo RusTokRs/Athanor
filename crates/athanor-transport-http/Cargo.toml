@@ -1,0 +1,25 @@
+[package]
+name = "athanor-transport-http"
+version = "0.1.0"
+authors.workspace = true
+description.workspace = true
+documentation.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+athanor-app = { path = "../athanor-app" }
+athanor-core = { path = "../athanor-core" }
+pulldown-cmark = { workspace = true, features = ["html"] }
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tokio = { workspace = true, features = ["io-util", "net", "time"] }
+
+[dev-dependencies]
+athanor-runtime-defaults = { path = "../athanor-runtime-defaults" }

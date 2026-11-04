@@ -131,7 +131,10 @@ fn print_help() {
         ("impact", "Calculate change blast radius"),
         ("change-map", "Build a bounded change map"),
         ("check", "Inspect diagnostics"),
-        ("docs", "Check, repair, generate, and inspect documentation"),
+        (
+            "docs",
+            "Serve, check, repair, generate, and inspect documentation",
+        ),
         ("config", "Validate and inspect configuration"),
         ("api", "Snapshot and compare API contracts"),
         ("wiki", "Build the Markdown wiki"),

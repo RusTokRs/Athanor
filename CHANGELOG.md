@@ -8,6 +8,14 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 
 ## [Unreleased]
 
+### Added
+
+- Add `ath docs serve`: a loopback-only, read-only documentation reader with a cross-profile immutable
+  generation catalog, safe Markdown/evidence panels, lexical/semantic/hybrid search, and Explore
+  excerpts, relation chains, and blast radius. The separate HTTP adapter checks declared paths and
+  checksums, bounds requests, supports HEAD/JSON reports and Ctrl-C cancellation, and never publishes
+  canonical or documentation data; existing retrieval may refresh its derived search cache.
+
 ## [0.3.0] - 2026-11-04
 
 ### Added
