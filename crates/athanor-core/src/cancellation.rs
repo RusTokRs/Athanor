@@ -43,6 +43,9 @@ impl CancellationHandle {
         let mut cancellations = registry()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Long-lived transports allocate fresh identities for each request. Released handles leave
+        // weak entries behind; prune them at admission so the registry tracks active work, not history.
+        cancellations.retain(|_, state| state.strong_count() > 0);
         if cancellations
             .get(&operation_id)
             .and_then(Weak::upgrade)
@@ -173,6 +176,30 @@ mod tests {
 
         assert!(!second.is_cancelled());
         assert!(!second_context.is_cancelled());
+    }
+
+    #[test]
+    fn registration_prunes_released_identities_without_losing_live_cancellation() {
+        let active_context = OperationContext::new("core-cancellation-prune-active");
+        let active = active_context.cancellation_handle().expect("active lease");
+        for index in 0..64 {
+            let context =
+                OperationContext::new(format!("core-cancellation-prune-released-{index}"));
+            drop(context.cancellation_handle().expect("temporary lease"));
+        }
+        let probe_context = OperationContext::new("core-cancellation-prune-probe");
+        let _probe = probe_context
+            .cancellation_handle()
+            .expect("trigger pruning");
+        assert!(
+            !registry()
+                .lock()
+                .expect("registry lock")
+                .keys()
+                .any(|key| key.starts_with("core-cancellation-prune-released-"))
+        );
+        active.cancel();
+        assert!(active_context.is_cancelled());
     }
 
     #[test]

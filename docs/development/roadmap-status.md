@@ -200,20 +200,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 `DOCGEN-001`'s defined in-policy extraction and completeness scope is complete. Slices 2A–2C, 3A–3C, 4A–4C, 5A–5C, 6A–6B, 7A–7C, and 8F–8H are promoted to `Verified` by exact-commit execution matrices. After the
 `0b42c28…` briefing rename, every remaining unprocessed file is policy-excluded, so further semantic gaps require a separately justified product scope rather than generic fixture coverage. Optional providers, daemon-served documentation, MCP generation, and i18n are separate product workstreams, not unfinished DOCGEN-001 coverage.
 
-The existing coordinated `ath generate` command remains unchanged.
-
-### Local Documentation Reader — Branch-Local, Verification Blocked
-
-`ath docs serve` source and regression suites are present in the dedicated `athanor-transport-http`
-adapter: loopback-only GET/HEAD, bounded cross-profile generation catalog, checksum/confined Markdown
-and evidence panels, and existing search/Explore HTML/JSON. It does not edit sources, canonical data,
-or published generations; existing retrieval may refresh a derived search cache. No provider,
-daemon/MCP revision, or storage/index-state migration is included.
-
-Workspace formatting and 12 isolated HTTP parser tests passed on Rust 1.99; workspace tests, Clippy,
-and the index smoke gate are blocked by uncached/unreachable crates.io dependencies. This source is
-not exact-commit Verified; the full Rust 1.95 execution matrix remains the next gate. See
-[HTTP reader](../adapters/transport-http.md) for the contract, cache caveat, and deferred scope.
+The existing coordinated `ath generate` command remains unchanged. Branch-local `ath docs serve` is implemented; Rust 1.95 verification is in progress in [draft #183](https://github.com/RusTokRs/Athanor/pull/183). See the [HTTP reader contract](../adapters/transport-http.md).
 
 ## Product Backlog
 
@@ -227,7 +214,6 @@ not exact-commit Verified; the full Rust 1.95 execution matrix remains the next 
 - [x] select the next bounded semantic gap from the exact post-gate artifact: Slice 8I first-party agent-tool MCP configuration;
 - [x] rename the typo-named `for agents. md` audit briefing to `architecture_audit_briefing_ru.md` (`0b42c28…`);
 - [x] start the semantic retrieval slice: local hashing embeddings implement the `EmbeddingProvider`/`VectorIndex` ports, persist in a JSON sidecar beside the Tantivy index, expose `lexical`/`semantic`/`hybrid` modes in `ath search --mode` and MCP `search`, and keep only hits at or above `SEMANTIC_MIN_SIMILARITY` (0.2 cosine) so unrelated documents are not returned as hashing noise;
-- [ ] execute the local documentation reader transport/CLI/schema tests and full workspace gates on Rust 1.95;
 - [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;

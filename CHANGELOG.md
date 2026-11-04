@@ -16,6 +16,11 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
   checksums, bounds requests, supports HEAD/JSON reports and Ctrl-C cancellation, and never publishes
   canonical or documentation data; existing retrieval may refresh its derived search cache.
 
+### Fixed
+
+- Prune released operation cancellation registrations at admission so long-lived query transports
+  retain active work rather than every historical request identity.
+
 ## [0.3.0] - 2026-11-04
 
 ### Added

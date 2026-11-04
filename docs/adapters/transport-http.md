@@ -11,10 +11,10 @@ status: draft
 reader over published documentation, with lexical/semantic/hybrid search and bounded Explore answers.
 It does not add an LLM, a generation workflow, an HTTP framework, or a daemon/MCP protocol revision.
 
-**Status:** branch-local implementation and regression suites are present, not release-verified.
-Workspace formatting and the isolated standard-library HTTP parser tests were executed with Rust
-1.99. The workspace test, Clippy, and indexing gates are blocked by unavailable crates.io dependencies
-in the implementation environment; Rust 1.95 CI verification is still required.
+**Status:** branch-local implementation; Rust 1.95 CI verification is in progress in
+[draft PR #183](https://github.com/RusTokRs/Athanor/pull/183), not release-verified. Local formatting and
+12 isolated parser tests pass on Rust 1.99; local full-workspace execution is blocked by unavailable
+crates.io dependencies. The PR matrix supplies the required dependency-enabled checks.
 
 ## Start The Reader
 
@@ -139,7 +139,8 @@ per key/value; 64 KiB manifests; 1 MiB pointers/validation metadata; 16 declared
 and an aggregate 8 MiB Markdown source budget per generation page. A page refuses bodies that exceed
 its remaining budget and retains their raw links. Explore retains its application link/path/traversal
 and excerpt bounds. Cancellation/deadline completion drains operation-aware workers rather than
-abandoning them.
+abandoning them. Core cancellation admission prunes released weak registrations so a long-running
+reader does not retain every historical request identity.
 
 The directory walk still enumerates generation names to choose the newest candidates, but checks
 request cancellation/deadlines between entries and retains only a bounded candidate set in memory.
