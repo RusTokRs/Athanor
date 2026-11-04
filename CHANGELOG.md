@@ -53,6 +53,7 @@ substantive release notes.
 ### Fixed
 
 - Keep full-history Gitleaks scanning enabled while suppressing one exact historical prose false positive through a commit/path/rule/line-bound fingerprint.
+- Upgrade locked Tokio, async-executor, pulldown-cmark, and zstd packages to patched, non-yanked releases for the RustSec advisories reported by cargo-deny.
 - Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.

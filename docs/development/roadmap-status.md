@@ -217,5 +217,4 @@ The existing coordinated `ath generate` command remains unchanged.
 - [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
-- [x] complete the initial semantic/vector retrieval slice with local hashing embeddings and lexical/semantic/hybrid `ath search` and MCP `search` modes;
-- optional i18n, provider integration, daemon-served MCP freshness, and multi-repository workflows remain separate product workstreams.
+- [x] complete local hashing semantic/vector retrieval and lexical/semantic/hybrid `ath search`/MCP `search`; optional i18n, providers, daemon-served MCP freshness, and multi-repository workflows remain separate workstreams.
