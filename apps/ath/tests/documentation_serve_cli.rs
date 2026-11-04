@@ -384,6 +384,12 @@ impl Fixture {
         fs::write(root.join("README.md"), "---\nid: doc://README.md\nkind: project_overview\nlanguage: en\nsource_language: en\nstatus: active\n---\n# Fixture service\n\nThe service exposes `execute`.\n").expect("write docs fixture");
         fs::write(root.join("Makefile"), "check:\n\tcargo test\n")
             .expect("write operations fixture");
+        fs::create_dir_all(root.join("api")).expect("create fixture API directory");
+        fs::write(
+            root.join("api/openapi.yaml"),
+            "openapi: 3.0.0\ninfo:\n  title: Reader fixture API\n  version: 1.0.0\npaths:\n  /health:\n    get:\n      operationId: health\n      responses:\n        '200':\n          description: ok\n",
+        )
+        .expect("write evidence-backed API fixture");
         Self { root }
     }
     fn arg(&self) -> &str {
