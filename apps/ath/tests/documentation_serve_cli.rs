@@ -204,6 +204,7 @@ fn assert_live_queries_read_only(server: &Server, fixture: &Fixture, snapshot: &
     let documentation = fixture.root.join(".athanor/generated/documentation");
     let canonical_before = tree_bytes(&canonical);
     let documentation_before = tree_bytes(&documentation);
+    let sources_before = tree_bytes(&fixture.root);
     for mode in ["lexical", "semantic", "hybrid"] {
         let search = server.json(&format!("/api/search?q=execute&mode={mode}"));
         assert_eq!(search["schema"], "athanor.search.v1");
@@ -248,6 +249,11 @@ fn assert_live_queries_read_only(server: &Server, fixture: &Fixture, snapshot: &
         tree_bytes(&documentation),
         documentation_before,
         "HTTP queries changed published documents"
+    );
+    assert_eq!(
+        tree_bytes(&fixture.root),
+        sources_before,
+        "HTTP queries changed source or configuration files"
     );
 }
 
@@ -418,6 +424,9 @@ fn tree_bytes(root: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     fn visit(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, Vec<u8>>) {
         for entry in fs::read_dir(path).expect("read fixture tree") {
             let path = entry.expect("fixture entry").path();
+            if path == root.join(".athanor") {
+                continue; // The root fixture comparison excludes explicitly allowed runtime caches.
+            }
             if path.is_dir() {
                 visit(root, &path, files);
             } else {

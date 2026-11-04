@@ -37,16 +37,18 @@ pub(super) fn to_html(source: &str) -> String {
             in_citation = false;
         }
     }
+    if count > 0 {
+        // Keep one renderer for both sections: it assigns footnote numbers in first-reference
+        // order, which can differ from the sorted definition order in published Markdown.
+        body.push(Event::Html(format!(
+            "<aside class=\"evidence-panel\"><h3>Evidence and citations ({count})</h3>\
+             <p class=\"hint\">Citations belong to this published snapshot. Stable-key links open the latest snapshot in Explore; source excerpts reflect the working tree.</p>"
+        ).into()));
+        body.extend(citations);
+        body.push(Event::Html("</aside>".into()));
+    }
     let mut rendered = String::with_capacity(source.len());
     html::push_html(&mut rendered, body.into_iter());
-    if count > 0 {
-        rendered.push_str(&format!(
-            "<aside class=\"evidence-panel\"><h3>Evidence and citations ({count})</h3>"
-        ));
-        rendered.push_str("<p class=\"hint\">Citations belong to this published snapshot. Stable-key links open the latest snapshot in Explore; source excerpts reflect the working tree.</p>");
-        html::push_html(&mut rendered, citations.into_iter());
-        rendered.push_str("</aside>");
-    }
     rendered
 }
 
@@ -121,6 +123,23 @@ mod tests {
         assert!(rendered.contains("src/lib.rs:1-2"));
         assert!(rendered.contains("footnote-reference"));
         assert!(rendered.contains("latest snapshot"));
+    }
+
+    #[test]
+    fn evidence_labels_follow_reference_order_even_when_definitions_are_sorted() {
+        let rendered = to_html(
+            "First[^b], then second[^a].\n\n[^a]: file://a.rs — a.rs:1-2\n[^b]: file://b.rs — b.rs:1-2\n",
+        );
+        assert!(rendered.contains("href=\"#b\">1</a>"), "{rendered}");
+        assert!(rendered.contains("href=\"#a\">2</a>"), "{rendered}");
+        assert!(
+            rendered.contains("id=\"a\"><sup class=\"footnote-definition-label\">2</sup>"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("id=\"b\"><sup class=\"footnote-definition-label\">1</sup>"),
+            "{rendered}"
+        );
     }
 
     #[test]
