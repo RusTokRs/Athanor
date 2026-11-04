@@ -154,7 +154,7 @@ Bodies are not cached in the reader.
   is granted. This mitigates browser DNS rebinding; it is not authentication against local users.
 - Percent-decoded traversal/separator/control segments are rejected before routing. Publication roots,
   manifests, and bodies are canonicalized and confined; generation-directory symlinks and escaping
-  artifact symlinks are refused. Only manifest-declared paths are served, with SHA-256 checked each time.
+  artifact symlinks are refused. An existing dangling publication root is an error, not an empty catalog. Only manifest-declared paths are served, with SHA-256 checked each time.
 - Raw Markdown HTML is escaped. Images become alt text; non-local Markdown links are inert. No script,
   remote stylesheet, font, CDN, or external image is needed. Mermaid fences remain readable source,
   not JavaScript-rendered diagrams.

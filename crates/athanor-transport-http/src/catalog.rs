@@ -524,13 +524,17 @@ fn load_current_pointer(
 }
 
 fn confined_directory(root: &Path, path: &Path) -> Result<Option<PathBuf>> {
-    let canonical = match path.canonicalize() {
-        Ok(canonical) => canonical,
+    // Absence is an empty catalog; an existing dangling link or unreadable directory is not.
+    match fs::symlink_metadata(path) {
+        Ok(_) => {}
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
-            return Err(error).with_context(|| format!("failed to resolve {}", path.display()));
+            return Err(error).with_context(|| format!("failed to inspect {}", path.display()));
         }
-    };
+    }
+    let canonical = path
+        .canonicalize()
+        .with_context(|| format!("failed to resolve {}", path.display()))?;
     if !canonical.starts_with(root) || !canonical.is_dir() {
         bail!(
             "{} is not a directory confined to {}",

@@ -384,6 +384,7 @@ fn refuses_symlinked_documents_manifests_generations_and_publication_roots() {
     assert_eq!(catalog.invalid().len(), 1);
 
     let outside_root = fixture_root("outside-publication");
+    write_generation(&outside_root, "00000001", "# External publication\n");
     let publication = root.join(DOCUMENTATION_ROOT_RELATIVE);
     fs::remove_dir_all(&publication).expect("remove fixture publication");
     symlink(outside_root.join(DOCUMENTATION_ROOT_RELATIVE), &publication)
@@ -404,5 +405,22 @@ fn catalog_queries_preserve_operation_deadlines_without_initializing_state() {
         Some(athanor_core::CoreError::DeadlineExceeded(_))
     )));
     assert!(!root.join(".athanor").exists());
+    fs::remove_dir_all(root).ok();
+}
+
+#[cfg(unix)]
+#[test]
+fn dangling_publication_roots_are_not_mistaken_for_empty_history() {
+    use std::os::unix::fs::symlink;
+
+    let root = fixture_root("dangling-publication");
+    let publication = root.join(DOCUMENTATION_ROOT_RELATIVE);
+    fs::create_dir_all(publication.parent().expect("publication parent"))
+        .expect("create publication parent");
+    symlink(root.join("missing-documentation"), &publication)
+        .expect("create dangling publication link");
+    let error =
+        Catalog::load(&root, limits()).expect_err("an existing dangling root must fail closed");
+    assert!(error.to_string().contains("failed to resolve"));
     fs::remove_dir_all(root).ok();
 }
