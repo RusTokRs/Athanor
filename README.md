@@ -53,11 +53,11 @@ canonical types and ports, while format, storage, query presentation, and projec
 outside those boundaries.
 
 The current baseline is an offline CLI with local JSONL canonical storage, repository overview,
-lexical search, bounded single-call code exploration with relation chains and blast radius, impact analysis,
-static projectors, MCP transport, an explicit user-level
-repository identity registry, and an initial local daemon lifecycle/read-only protocol slice.
-Production multi-process storage, daemon job orchestration, semantic vectors, and daemon-served
-multi-repository workflows remain roadmap work.
+lexical/semantic/hybrid search, bounded single-call code exploration with cited source excerpts, relation
+chains and blast radius, impact analysis, static projectors, MCP transport, an explicit user-level repository
+identity registry, and an authenticated local daemon with watched background indexing and read queries.
+Production multi-process storage and daemon-served multi-repository/MCP workflows with freshness signals
+remain roadmap work.
 
 ## Quick Start
 

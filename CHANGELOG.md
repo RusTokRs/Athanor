@@ -2,14 +2,13 @@
 
 All notable user-visible changes to Athanor are recorded in this file.
 
-The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and release versions use
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). The top `[Unreleased]` section collects
-changes after the latest frozen candidate. A release version must have exactly one section with an ISO
-`YYYY-MM-DD` date and at least one substantive note before its matching `v<version>` tag may be
-published. HTML comments, thematic breaks, empty list markers, and empty fenced code blocks are not
-substantive release notes.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+`[Unreleased]` collects post-candidate changes. Each release has one ISO-dated section with substantive notes before its `v<version>` tag.
+HTML comments, thematic breaks, empty list markers, and empty fenced code blocks are not substantive notes.
 
 ## [Unreleased]
+
+## [0.3.0] - 2026-11-04
 
 ### Added
 
@@ -50,6 +49,7 @@ substantive release notes.
 
 ### Fixed
 
+- Keep full-history Gitleaks active with one exact prose false-positive fingerprint; upgrade locked Tokio, async-executor, pulldown-cmark, and zstd packages to patched, non-yanked releases.
 - Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store loading, CLI, and transport integration; headers name the deferred scope and its limits.
 - Reject Windows drive paths, reserved device names, trailing-dot/space components, and
   case-insensitive output-path collisions before documentation artifacts can be published.

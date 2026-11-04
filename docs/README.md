@@ -74,9 +74,7 @@ RusTok opt-in adapters: [FFA](adapters/rustok-ffa.md), [FBA](adapters/rustok-fba
 
 ## Generated And Editable Documentation
 
-`ath generate` continues to publish coordinated JSONL, Wiki, and HTML outputs. Architecture and module
-documentation use separate exact-snapshot commands but the same immutable documentation generation root
-and profile-aware `current.json` pointer:
+`ath generate` continues to publish coordinated JSONL, Wiki, and HTML outputs. Architecture, module, API, operations, and onboarding documentation use separate exact-snapshot commands but the same immutable documentation generation root and profile-aware `current.json` pointer. For example:
 
 ```bash
 ath docs generate-architecture . --snapshot <EXACT-COMMITTED-SNAPSHOT>
@@ -143,5 +141,7 @@ cargo fmt --all -- --check
 Slices 0A–1C are execution-confirmed on source `042d02ac6b4c89d90a5b76c818098eb0c6b41920`:
 CI `30025932615`, AppSec `30025931953`, Store `30025932704`. The repaired bounded Rustok evaluation is
 fully matrix-confirmed on `f1024cbc52f05de4d3ce96c556ef044ad48b3a0e`; relation-disclosure tuning is
-exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`. Module Slices 2A–2C are
-implemented in source as they land; focused format/test/Clippy evidence remains separate until recorded.
+exact-evaluation-confirmed on `6862aee81dd0f53fa8372d1ce3fcb6e2ed198cca`. Module/API/operations/onboarding,
+completeness, and framework profiles have the focused evidence recorded in `development/roadmap-status.md`.
+The current combined code-intelligence baseline is exact-verified on `2f6793399376e3c5db31f1d40eed76e6494c39fb`
+by CI `39903375360`, AppSec `39903375439`, and Store Conformance `39903375381`.

@@ -134,6 +134,14 @@ skills поверх. То есть «уровень Terrain» — это не «
 > paths и symbol-level incremental invalidation; обязательный scope — Rust и TypeScript/JS.
 > См. актуальный source-state план в `docs/development/code-intelligence-parity-plan.md` и ledger в
 > `docs/development/roadmap-status.md`; эта записка не заменяет verification matrix.
+>
+> **Обновление статуса на 2026-11-04.** Базовые таблицы выше остаются срезом 2026-10-11. На exact
+> `2f6793399376e3c5db31f1d40eed76e6494c39fb` уже verified P2X–P2BD (typed factories/receivers и
+> symbol-level resolution для Rust/JS/TS), P5c (bounded source excerpts в `explore`) и hybrid semantic
+> retrieval. CI `39903375360`, AppSec `39903375439` и Store Conformance `39903375381` зелёные. Поэтому
+> исходные оценки C2/C3 и LOC нельзя использовать как текущий остаток работ. Актуальные открытые gaps:
+> daemon-served MCP freshness/multi-repo, Python/Go resolution depth, внешние benchmarks, distribution и
+> продуктовый UI/LLM-слой. Подробности — в двух документах по ссылке выше.
 
 ---
 

@@ -9,6 +9,14 @@ if [[ ! -f "$log_file" ]]; then
   exit 0
 fi
 
+trimmed_log="$(mktemp)"
+trap 'rm -f "$trimmed_log"' EXIT
+# A single rustc/linker command can exceed GitHub's annotation budget and hide
+# the actual error that follows it. Preserve the beginning of every line and
+# all subsequent diagnostics instead of discarding the useful tail.
+sed -E 's/(.{2000}).*/\1 [line truncated]/' "$log_file" > "$trimmed_log"
+log_file="$trimmed_log"
+
 log_tail="$(tail -n 30 "$log_file")"
 failure_summary="$(grep -E -B 1 -A 1 'panicked at|assertion failed:|test result: FAILED|error: test failed|failures:|error(\[|:)' "$log_file" | tail -n 120 || true)"
 if [[ -n "$failure_summary" ]]; then
