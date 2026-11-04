@@ -10,16 +10,11 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 
 ### Added
 
-- Add `ath docs serve`: a loopback-only, read-only documentation reader with a cross-profile immutable
-  generation catalog, safe Markdown/evidence panels, lexical/semantic/hybrid search, and Explore
-  excerpts, relation chains, and blast radius. The separate HTTP adapter checks declared paths and
-  checksums, bounds requests, supports HEAD/JSON reports and Ctrl-C cancellation, and never publishes
-  canonical or documentation data; existing retrieval may refresh its derived search cache.
+- Add loopback-only `ath docs serve` for immutable documentation, safe Markdown/evidence panels, search, and Explore; canonical publications stay read-only, while retrieval may refresh a derived cache.
 
 ### Fixed
 
-- Prune released operation cancellation registrations at admission so long-lived query transports
-  retain active work rather than every historical request identity.
+- Prune released cancellation registrations to bound historical request-identity memory in long-lived transports.
 
 ## [0.3.0] - 2026-11-04
 
@@ -34,8 +29,7 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 - Add the JavaScript/TypeScript call graph: the extractor records each import statement's local bindings (`default_name`, `namespace_name`, `named`) and a bounded `calls` array per declaration with the statically named callee, receiver, kind, argument count, and line/column, and `builtin.linker.js_ts_calls` resolves those into evidence-backed `Calls` relations and emits `TestedBy` from test locations.
 - Preserve JS/TS aliases; resolve bounded named/default and direct-namespace calls plus uniquely aggregated multi-source wildcards, exclude wildcard `default`, and bump index v47→v52.
 - Add JS/TS callback and promise-handler bridges: combinator call sites record bounded `callback_arguments` that the call linker resolves into indirect evidence-backed `Calls` edges; index state bumps v52→v53.
-- Add strict versioned request, outline, context, citation, draft, manifest, and validation-report
-  contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
+- Add strict versioned request, outline, context, citation, draft, manifest, and validation-report contracts for documentation generation: exact snapshot binding, portable paths, stable-key/evidence traceability, cited diagram edges, metrics, and checksums.
 - Add a minimal fixture repository and Rustok evaluation corpus with expected sections, citation paths, diagram edges, known gaps, repeatability, unsupported-relation disclosure, and review criteria.
 - Add a deterministic architecture profile that converts one explicit canonical snapshot into cited Markdown, relation-backed Mermaid, omission disclosure, footnotes, metrics, and checksums.
 - Add an application-layer immutable documentation publisher with staged generation directories, checksum-bound artifacts, an atomic `documentation/current.json` pointer, and exact `UpToDate` reuse.
@@ -64,16 +58,10 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 
 - Keep full-history Gitleaks active with one exact prose false-positive fingerprint; upgrade locked Tokio, async-executor, pulldown-cmark, and zstd packages to patched, non-yanked releases.
 - Stop generated module/API/operations/onboarding documents from claiming shipped publication, Store loading, CLI, and transport integration; headers name the deferred scope and its limits.
-- Reject Windows drive paths, reserved device names, trailing-dot/space components, and
-  case-insensitive output-path collisions before documentation artifacts can be published.
-- Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual
-  claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports;
-  reject tampered manifests/artifacts as up to date and rebuild instead of reusing them.
-- Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible
-  snapshot, and preserve the previous current pointer when CLI generation is cancelled.
-- Restore the bounded snapshot-search module after the semantic-search slice: mode dispatch and
-  hybrid ranking move to `search/execution.rs`, and `athanor-search-tantivy` compiles again with
-  the declared `serde` dependency, score-ordered `TopDocs`, and a 0.2 cosine-similarity floor.
+- Reject Windows drive paths, reserved device names, trailing-dot/space components, and case-insensitive output-path collisions before documentation artifacts can be published.
+- Reject raw-file/secret context access, out-of-context citations and diagram endpoints, uncited factual claims, malformed evidence ranges, provider metrics without opt-in, and inconsistent valid reports; reject tampered manifests/artifacts as up to date and rebuild instead of reusing them.
+- Reject missing or uncommitted documentation snapshot IDs instead of falling back to the latest visible snapshot, and preserve the previous current pointer when CLI generation is cancelled.
+- Restore the bounded snapshot-search module after the semantic-search slice: mode dispatch and hybrid ranking move to `search/execution.rs`, and `athanor-search-tantivy` compiles again with the declared `serde` dependency, score-ordered `TopDocs`, and a 0.2 cosine-similarity floor.
 - Enforce external-process deadlines and cancellation while draining inherited output pipes, terminate remaining Unix process-group members, and preserve canonical Windows untrust paths after manifest removal.
 - Reindex cached Rust and JS/TS receiver evidence after parser and factory-binding repairs; index state bumps v95→v96 so unchanged files cannot retain stale relations.
 - Scope changed-file validation to nested Git roots, include new files without Git, preserve Unix backslashes, reject non-UTF-8 or escaping source paths, and stop directory symlink cycles.
@@ -82,8 +70,7 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 
 ### Fixed
 
-- Package the actual `*.cdx.json` files emitted by `cargo-cyclonedx 0.5.9` instead of searching only for
-  `bom.json`.
+- Package the actual `*.cdx.json` files emitted by `cargo-cyclonedx 0.5.9` instead of searching only for `bom.json`.
 - Validate that the workspace SBOM inventory is non-empty and that every packaged document is a
   non-empty CycloneDX JSON object before signing or attesting the archive.
 
