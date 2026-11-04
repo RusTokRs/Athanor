@@ -294,11 +294,11 @@ The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENT
 
 ## Separate Product Slice — Local Documentation Reader
 
-`ath docs serve` is a bounded loopback-only reader over publications and search/Explore, outside DOCGEN-001. Retrieval may refresh a derived cache; canonical writes/providers remain absent. See the [HTTP reader contract](../adapters/transport-http.md) for bounds, schemas, snapshot semantics, and draft #183 verification.
+`ath docs serve` is a bounded loopback-only reader over publications and search/Explore, outside DOCGEN-001. Retrieval may refresh a derived cache; canonical writes/providers remain absent. See the [HTTP reader contract](../adapters/transport-http.md) for bounds, schemas, snapshot semantics, and exact-source Rust 1.95 CI evidence (`41926650130` on `1733559`).
 
 ## Next Bounded Step
 
-1. Complete the reader's Rust 1.95 matrix before promoting it to Verified; preserve exact-commit evidence for new semantic projections.
+1. Preserve exact-source reader CI evidence and require current-head/release gates; new semantic projections need their own execution evidence.
 2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
    fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
    require a separately justified evidence-backed product scope.

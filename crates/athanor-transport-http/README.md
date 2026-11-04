@@ -3,7 +3,7 @@ id: doc://crates/athanor-transport-http/README.md
 kind: adapter
 language: en
 source_language: en
-status: draft
+status: active
 ---
 # athanor-transport-http
 
@@ -27,4 +27,6 @@ cargo test -p athanor-transport-http --locked
 cargo test -p ath --test documentation_serve_cli --locked
 ```
 
-These suites are present in source; full workspace execution remains required before release.
+Rust 1.95 workspace tests, Clippy, cross-platform indexing/docs smoke, feature sets, coverage, and
+cargo-deny passed on `173355983a348f263b0e4e516f159cfcdcce06d2` in [CI 41926650130](https://github.com/RusTokRs/Athanor/actions/runs/41926650130).
+See [PR #183](https://github.com/RusTokRs/Athanor/pull/183) for current-head checks; this is not a release.

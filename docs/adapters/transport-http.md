@@ -3,7 +3,7 @@ id: doc://docs/adapters/transport-http.md
 kind: adapter
 language: en
 source_language: en
-status: draft
+status: active
 ---
 # Local HTTP Documentation Reader
 
@@ -11,10 +11,14 @@ status: draft
 reader over published documentation, with lexical/semantic/hybrid search and bounded Explore answers.
 It does not add an LLM, a generation workflow, an HTTP framework, or a daemon/MCP protocol revision.
 
-**Status:** branch-local implementation; Rust 1.95 CI verification is in progress in
-[draft PR #183](https://github.com/RusTokRs/Athanor/pull/183), not release-verified. Local formatting and
-12 isolated parser tests pass on Rust 1.99; local full-workspace execution is blocked by unavailable
-crates.io dependencies. The PR matrix supplies the required dependency-enabled checks.
+**Status:** branch-local implementation, not released. Rust 1.95 [CI run 41926650130](https://github.com/RusTokRs/Athanor/actions/runs/41926650130)
+passed on exact source `173355983a348f263b0e4e516f159cfcdcce06d2`: formatting, workspace tests, Clippy, indexing and editable-docs smoke
+on Linux/Windows/macOS; default/store-surreal/js-ts-precision/all-features; coverage; and cargo-deny.
+The Unix adapter suite has 47 tests (45 on Windows), plus five binary CLI regressions. Current-head
+AppSec, Store, production E2E, and documentation checks are linked from
+[PR #183](https://github.com/RusTokRs/Athanor/pull/183); release gates still require the actual release SHA.
+Local crates.io access remains unavailable; the dependency-enabled CI, not isolated local checks,
+is the full-workspace execution evidence.
 
 ## Start The Reader
 
@@ -174,7 +178,7 @@ not HTTP and is not reused. Markdown uses the already locked workspace `pulldown
 only its `html` feature added, not its CLI/default features. That feature adds the dependency-free
 `pulldown-cmark-escape 0.11.0` (MIT, Rust 1.70), compatible with the workspace's Rust 1.95 and
 `deny.toml` license/source policy. This is not a workspace-wide advisory remediation; existing RUSTSEC
-work remains separately gated. Full cargo-deny/CI execution still belongs to the release gate.
+work remains separately gated. The recorded CI includes locked cargo-deny; release checks must still use the exact release source.
 
 ## Verification
 
@@ -192,4 +196,4 @@ Regressions cover HTTP parsing, Host/framing/size rejection, route/query limits,
 path confinement, current-pointer identity, validation-report integrity, deterministic Markdown
 escaping/evidence links, HEAD, cancellation with idle clients, CLI start-up, all five profiles,
 publication refresh without restart, retrieval modes/Explore, and canonical/documentation immutability.
-Source presence is not evidence that the blocked suites passed.
+The exact-source CI record above is execution evidence; source presence and isolated local checks alone are not.

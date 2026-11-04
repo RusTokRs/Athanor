@@ -200,7 +200,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 `DOCGEN-001`'s defined in-policy extraction and completeness scope is complete. Slices 2A–2C, 3A–3C, 4A–4C, 5A–5C, 6A–6B, 7A–7C, and 8F–8H are promoted to `Verified` by exact-commit execution matrices. After the
 `0b42c28…` briefing rename, every remaining unprocessed file is policy-excluded, so further semantic gaps require a separately justified product scope rather than generic fixture coverage. Optional providers, daemon-served documentation, MCP generation, and i18n are separate product workstreams, not unfinished DOCGEN-001 coverage.
 
-The existing coordinated `ath generate` command remains unchanged. Branch-local `ath docs serve` is implemented; Rust 1.95 verification is in progress in [draft #183](https://github.com/RusTokRs/Athanor/pull/183). See the [HTTP reader contract](../adapters/transport-http.md).
+The existing coordinated `ath generate` command remains unchanged. Branch-local `ath docs serve` passed Rust 1.95 CI `41926650130` on `1733559`; the [HTTP reader contract](../adapters/transport-http.md) records the exact source, matrix, cache caveat, and current-head/release gates.
 
 ## Product Backlog
 

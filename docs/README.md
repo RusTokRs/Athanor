@@ -105,7 +105,7 @@ It lists published generations across all five profiles, renders Markdown with e
 exposes bounded search/Explore over the latest canonical snapshot. No sources, canonical data, or
 published documents are changed; existing queries may rebuild their derived search cache. The catalog
 refreshes on each request. See [HTTP reader](adapters/transport-http.md) for security, bounds, snapshot
-semantics, and the pending full-verification gate.
+semantics, and the exact-source CI execution record.
 
 Editable documentation remains review-oriented:
 

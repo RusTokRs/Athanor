@@ -186,7 +186,7 @@ Publish a profile first with `ath docs generate-<profile> . --snapshot <exact-sn
 catalog also explains that workflow. The reader provides cross-profile generation history, Markdown
 and citations, local search, and bounded Explore. Sources, canonical data, and published generations
 are not changed; retrieval may refresh a derived search cache. See the
-[HTTP reader guide](docs/adapters/transport-http.md) for limits and pending full-verification status.
+[HTTP reader guide](docs/adapters/transport-http.md) for limits and exact-source CI verification evidence.
 
 ## Documentation
 
