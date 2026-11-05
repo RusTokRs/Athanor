@@ -183,6 +183,10 @@ Low-level Store queries always use a `SnapshotSelector`:
 - relation and diagnostic filters use canonical `EntityId` values;
 - stable-key callers resolve through `EntityResolver` before ID-based queries.
 
+Daemon and direct MCP reads select latest per request, including external index publications; derived
+report/search caches are snapshot-keyed, never an authoritative latest selector. Status only reports
+last-observed state. See [query freshness](../development/query-freshness.md) for the F1 boundary.
+
 The reusable Store conformance package defines this visibility contract for supported backends.
 SurrealDB remains opt-in and environment-backed; default CLI/daemon builds use JSONL.
 

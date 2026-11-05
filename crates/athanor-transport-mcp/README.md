@@ -22,3 +22,7 @@ stdin/stdout stdio protocol.
 
 See `docs/adapters/transport-mcp.md` for protocol revisions, cancellation, deadlines, concurrency bounds,
 and client configuration.
+
+Read tools select the latest committed Store snapshot per call, not once per stdio session. External
+index commits become visible without restarting MCP; source edits alone do not trigger indexing.
+See [query freshness](../../docs/development/query-freshness.md) for the daemon/MCP boundary and tests.

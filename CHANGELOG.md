@@ -14,7 +14,7 @@ HTML comments, thematic breaks, empty list markers, and empty fenced code blocks
 
 ### Fixed
 
-- Prune released cancellation registrations to bound historical request-identity memory in long-lived transports.
+- Prune released cancellation registrations to bound historical request-identity memory; refresh daemon latest reads after external commits and disclose the last observed snapshot without stale fallback.
 
 ## [0.3.0] - 2026-11-04
 

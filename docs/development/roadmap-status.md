@@ -200,7 +200,7 @@ gap, the typo-named `for agents. md` briefing, was fixed by renaming it to
 `DOCGEN-001`'s defined in-policy extraction and completeness scope is complete. Slices 2A–2C, 3A–3C, 4A–4C, 5A–5C, 6A–6B, 7A–7C, and 8F–8H are promoted to `Verified` by exact-commit execution matrices. After the
 `0b42c28…` briefing rename, every remaining unprocessed file is policy-excluded, so further semantic gaps require a separately justified product scope rather than generic fixture coverage. Optional providers, daemon-served documentation, MCP generation, and i18n are separate product workstreams, not unfinished DOCGEN-001 coverage.
 
-The existing coordinated `ath generate` command remains unchanged. Branch-local `ath docs serve` passed Rust 1.95 CI `41926650130` on `1733559`; the [HTTP reader contract](../adapters/transport-http.md) records the exact source, matrix, cache caveat, and current-head/release gates.
+The existing coordinated `ath generate` command remains unchanged. Branch-local `ath docs serve` passed Rust 1.95 CI `41926650130` on `1733559`; the [HTTP reader contract](../adapters/transport-http.md) records the exact source, matrix, cache caveat, and current-head/release gates. Branch-local [query freshness F1](query-freshness.md) implements per-request daemon latest selection plus warmed-cache/MCP regressions; current-head verification is required.
 
 ## Product Backlog
 
@@ -217,4 +217,4 @@ The existing coordinated `ath generate` command remains unchanged. Branch-local 
 - [ ] keep issue forms, OpenAPI fixtures, and generic JSON parsing out unless justified by product semantics;
 - [ ] keep Next.js/Axum/Express schemas/auth/middleware and route-composition expansion evidence-driven;
 - Dart/Flutter remains blocked on a portable DartScope dependency boundary rather than a local-only path dependency;
-- [x] complete local hashing semantic/vector retrieval and lexical/semantic/hybrid `ath search`/MCP `search`; optional i18n, providers, daemon-served MCP freshness, and multi-repository workflows remain separate workstreams.
+- [x] complete local hashing semantic/vector retrieval and lexical/semantic/hybrid `ath search`/MCP `search`; optional i18n/providers, MCP-to-daemon bridging, watcher/source freshness signals, and multi-repository workflows remain separate workstreams.

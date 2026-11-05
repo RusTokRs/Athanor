@@ -28,6 +28,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Publication semantics](development/publication-semantics-inventory.md)
 - [Runtime composition migration](development/legacy-runtime-compatibility.md)
 - [Direct operation context](development/direct-operation-context.md)
+- [Query freshness and daemon/MCP coherence](development/query-freshness.md)
 - [JSON contract inventory](development/json-contract-inventory.md)
 - [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
 - [Code intelligence parity and operational documentation](development/code-intelligence-parity-plan.md)
