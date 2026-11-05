@@ -10,12 +10,19 @@ status: active
 ## Scope And Status
 
 Branch-local slice F1 aligns daemon reads with the existing direct MCP latest-committed contract.
-Implementation is not execution evidence: use the exact-head checks and source SHA recorded in
+Exact runtime source `3280c6e5bcf49b2ff8acc778d773a4a30ba4b766` passed Rust 1.95
+[CI 41987510583](https://github.com/RusTokRs/Athanor/actions/runs/41987510583): workspace tests,
+formatting, Clippy, indexing/docs smoke on Linux/Windows/macOS; all four feature sets, coverage and
+cargo-deny. [AppSec 41987510915](https://github.com/RusTokRs/Athanor/actions/runs/41987510915),
+[Store 41987510589](https://github.com/RusTokRs/Athanor/actions/runs/41987510589) and
+[Production Gate 41987510671](https://github.com/RusTokRs/Athanor/actions/runs/41987510671) passed.
+Six daemon freshness regressions and two real-process MCP regressions ran in the workspace matrix.
+Later source changes require their own checks; current-head evidence is recorded in
 [PR #183](https://github.com/RusTokRs/Athanor/pull/183). This is not a release or completion of the
 broader daemon-served MCP/auto-synchronization workstream.
 
 The concrete scenario is a long-lived daemon or MCP session while another `ath index <root>` process
-publishes a new canonical generation. A successful subsequent read must select that committed
+publishes a new canonical generation in the same configured Store. A successful subsequent read must select that committed
 snapshot, not silently continue serving the first snapshot observed by the process.
 
 ## Selection Contract
@@ -50,7 +57,8 @@ A source edit without a successful index publication does not make canonical kno
 MCP does not start the watcher, launch an index implicitly, or route through the daemon in F1. Existing
 opt-in daemon watching remains separate; MCP-to-daemon bridging, watcher event-loss/liveness signals,
 source-vs-index freshness reports and multi-repository routing still need their own bounded slices.
-Explore excerpts read the current working tree and are not historical snapshot text.
+Backend/path reconfiguration or snapshot-id reuse across different stores is not a F1 cache-namespace
+migration guarantee. Explore excerpts read the current working tree, not historical snapshot text.
 
 ## Cost, Cancellation And Writes
 
