@@ -79,7 +79,7 @@ impl DaemonFixture {
             jobs: Mutex::new(Vec::new()),
             next_job_sequence: Mutex::new(1),
             max_job_history: 32,
-            latest_snapshot_cache: Mutex::new(None),
+            last_observed_snapshot: Mutex::new(None),
             search_index_cache: Mutex::new(None),
             overview_cache: Mutex::new(BoundedCache::new(8)),
             context_cache: Mutex::new(BoundedCache::new(8)),

@@ -65,7 +65,7 @@ so stale lock files do not block restart or preserve old process identity.
 ## Read Freshness
 
 Daemon read reports resolve latest committed Store state per request; external CLI index commits do
-not require a daemon restart. Status `cache.last_observed_snapshot` records the last successful read,
+not require a daemon restart. Status `cache.last_observed_snapshot` records the last successful Store selection,
 not a live Store/source-freshness probe. Derived caches stay snapshot-keyed; no implicit indexing or
 pointer repair occurs. See [query freshness](query-freshness.md) for F1 scope, costs, and verification.
 

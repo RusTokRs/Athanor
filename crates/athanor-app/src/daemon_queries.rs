@@ -25,7 +25,7 @@ pub(crate) async fn latest_snapshot_with_operation_context(
     check_active(operation)?;
     // A different CLI/daemon process can commit without invalidating this process's caches.
     // Resolve LatestCommitted through the Store on every request, as direct MCP reads do. The
-    // retained snapshot is last-observed status only; derived caches remain keyed by snapshot id.
+    // retained identity is last-observed status only; derived caches remain keyed by snapshot id.
     let root = &state.endpoint.root;
     let config = load_config(root)?;
     check_active(operation)?;
@@ -43,10 +43,10 @@ pub(crate) async fn latest_snapshot_with_operation_context(
         })?;
     check_active(operation)?;
     *state
-        .latest_snapshot_cache
+        .last_observed_snapshot
         .lock()
         .map_err(|_| anyhow::anyhow!("daemon snapshot cache lock is poisoned"))? =
-        Some(snapshot.clone());
+        snapshot.snapshot.clone();
     Ok(snapshot)
 }
 
@@ -189,7 +189,7 @@ pub(crate) async fn search_with_operation_context(
 }
 
 pub(crate) fn invalidate(state: &DaemonState) {
-    match state.latest_snapshot_cache.lock() {
+    match state.last_observed_snapshot.lock() {
         Ok(mut cache) => *cache = None,
         Err(_) => tracing::warn!("daemon snapshot cache lock is poisoned"),
     }
@@ -208,20 +208,13 @@ pub(crate) fn invalidate(state: &DaemonState) {
 }
 
 pub(crate) fn cache_status(state: &DaemonState) -> Value {
-    let (snapshot_loaded, last_observed_snapshot) = state
-        .latest_snapshot_cache
+    let last_observed_snapshot = state
+        .last_observed_snapshot
         .lock()
-        .map(|cache| {
-            (
-                cache.is_some(),
-                cache
-                    .as_ref()
-                    .and_then(|snapshot| snapshot.snapshot.clone()),
-            )
-        })
-        .unwrap_or((false, None));
+        .map(|snapshot| snapshot.clone())
+        .unwrap_or_default();
     serde_json::json!({
-        "snapshot_loaded": snapshot_loaded,
+        "snapshot_loaded": last_observed_snapshot.is_some(),
         "last_observed_snapshot": last_observed_snapshot,
         "search_index_loaded": state.search_index_cache.lock().is_ok_and(|cache| cache.is_some()),
         "overview_entries": state.overview_cache.lock().map_or(0, |cache| cache.len()),

@@ -170,7 +170,7 @@ async fn unavailable_latest_never_falls_back_to_a_warmed_snapshot_or_repairs_poi
 }
 
 #[tokio::test]
-async fn cached_snapshot_does_not_bypass_cancellation_or_deadline() {
+async fn warmed_read_state_does_not_bypass_cancellation_or_deadline() {
     let fixture = DaemonFixture::new("operation").await;
     read(&fixture, overview()).await;
     let operation = OperationContext::new("daemon-freshness-cancelled");

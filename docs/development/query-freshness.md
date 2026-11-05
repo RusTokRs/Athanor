@@ -40,8 +40,9 @@ keys and daemon v1/v2 migration inputs/v3 outputs remain unchanged.
 
 ## Status Is Observation, Not Automatic Synchronization
 
-`cache.snapshot_loaded` and `cache.last_observed_snapshot` describe the last successful daemon read,
-not a fresh Store probe by Status. They can predate a newer external commit or a failed refresh.
+`cache.snapshot_loaded` and `cache.last_observed_snapshot` describe the last successful canonical Store
+selection by a daemon read since cache invalidation; only its identity, not a redundant full snapshot, is retained. These fields are
+not a fresh Store probe by Status and can predate a newer external commit or a failed refresh.
 `last_successful_index` still describes daemon-owned index jobs only, not external CLI publications.
 Use the read report's snapshot identity for the request, not either status field as a liveness signal.
 
