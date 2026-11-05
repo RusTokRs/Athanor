@@ -234,7 +234,7 @@ async fn try_read(fixture: &DaemonFixture, command: DaemonCommand) -> DaemonResp
         fixture.state.clone(),
         DaemonRequest {
             schema: DAEMON_REQUEST_SCHEMA.to_string(),
-            request_id: "freshness-read".to_string(),
+            request_id: fixture.request_id(),
             project_id: fixture.state.endpoint.project_id.clone(),
             auth_token: Some(fixture.state.auth_token.clone()),
             command,

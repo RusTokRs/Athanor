@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -17,6 +18,7 @@ use crate::daemon_runtime::BoundedCache;
 pub(crate) struct DaemonFixture {
     pub(crate) state: Arc<DaemonState>,
     pub(crate) initial_snapshot: String,
+    request_sequence: AtomicU64,
     // Drop state/search handles before removing files, including on Windows.
     _directory: TestDirectory,
 }
@@ -88,6 +90,7 @@ impl DaemonFixture {
         Self {
             state,
             initial_snapshot,
+            request_sequence: AtomicU64::new(1),
             _directory: directory,
         }
     }
@@ -102,6 +105,22 @@ impl DaemonFixture {
             snapshot_id: self.initial_snapshot.clone(),
             index,
         });
+    }
+
+    pub(crate) fn request_id(&self) -> String {
+        // Cancellation identities are process-wide; fixtures run in parallel and must not alias.
+        let prefix = self
+            .state
+            .endpoint
+            .root
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let sequence = self.request_sequence.fetch_add(1, Ordering::Relaxed);
+        let request_id = format!("{prefix}-{sequence}");
+        assert!(request_id.len() <= 128);
+        request_id
     }
 
     pub(crate) fn latest_pointer(&self) -> PathBuf {
