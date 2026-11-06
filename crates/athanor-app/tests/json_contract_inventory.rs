@@ -19,6 +19,21 @@ struct SourceLiteralJsonContract {
 
 const SOURCE_LITERAL_JSON_CONTRACTS: &[SourceLiteralJsonContract] = &[
     SourceLiteralJsonContract {
+        schema: "athanor.documentation_serve.v1",
+        owner: "athanor_transport_http::DocumentationServeReport",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_serve_catalog.v1",
+        owner: "athanor_transport_http::catalog::CatalogReport",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
+        schema: "athanor.documentation_serve_error.v1",
+        owner: "athanor_transport_http::BoundDocumentationServer::failure_response",
+        lifecycle: BoundaryLifecycle::Current,
+    },
+    SourceLiteralJsonContract {
         schema: "athanor.api_registry.v1",
         owner: "ApiRegistryReport",
         lifecycle: BoundaryLifecycle::Current,

@@ -26,6 +26,8 @@ mod daemon_command_dispatch;
 mod daemon_connection;
 mod daemon_derived_read_dispatch;
 mod daemon_endpoint;
+#[cfg(test)]
+mod daemon_freshness_tests;
 mod daemon_job_cancellation;
 mod daemon_job_registry;
 mod daemon_job_scheduler;
@@ -35,6 +37,8 @@ mod daemon_lifecycle;
 mod daemon_operation;
 mod daemon_protocol;
 mod daemon_queries;
+#[cfg(test)]
+mod daemon_query_test_support;
 mod daemon_read_dispatch;
 #[cfg(test)]
 mod daemon_read_dispatch_tests;

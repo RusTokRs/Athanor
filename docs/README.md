@@ -28,6 +28,7 @@ verification. Exact package evidence lives in `athanor_implementation_plan_ru.md
 - [Publication semantics](development/publication-semantics-inventory.md)
 - [Runtime composition migration](development/legacy-runtime-compatibility.md)
 - [Direct operation context](development/direct-operation-context.md)
+- [Query freshness and daemon/MCP coherence](development/query-freshness.md)
 - [JSON contract inventory](development/json-contract-inventory.md)
 - [Evidence-backed documentation generation](development/evidence-backed-documentation-generation-plan.md)
 - [Code intelligence parity and operational documentation](development/code-intelligence-parity-plan.md)
@@ -65,6 +66,7 @@ Linking/checking: [Markdown linker](adapters/linker-markdown.md),
 Read models/services: [JSONL](adapters/store-jsonl.md), [SurrealDB](adapters/store-surrealdb.md),
 [Tantivy](adapters/search-tantivy.md), [Wiki](adapters/projector-wiki.md),
 [HTML](adapters/projector-html.md), [MCP](adapters/transport-mcp.md),
+[local HTTP documentation reader](adapters/transport-http.md),
 [Impact](adapters/impact.md), [Change Map](adapters/change-map.md), and
 [Explore](adapters/explore.md).
 
@@ -92,6 +94,19 @@ Generation requires an exact committed snapshot, has no latest fallback, accepts
 flags, and cancels on Ctrl-C. Architecture and module selectors retain the shared `256` citation/context budget.
 Inspection validates the requested profile, pointer confinement, identities, artifact layout, and
 checksums before output. Provider, daemon, and MCP integration are not enabled.
+
+For local browser reading without a model provider, use the separate HTTP reader:
+
+```bash
+ath docs serve . --bind 127.0.0.1:7878
+ath docs serve . --bind 127.0.0.1:0 --json
+```
+
+It lists published generations across all five profiles, renders Markdown with evidence panels, and
+exposes bounded search/Explore over the latest canonical snapshot. No sources, canonical data, or
+published documents are changed; existing queries may rebuild their derived search cache. The catalog
+refreshes on each request. See [HTTP reader](adapters/transport-http.md) for security, bounds, snapshot
+semantics, and the exact-source CI execution record.
 
 Editable documentation remains review-oriented:
 
@@ -135,6 +150,8 @@ cargo test -p athanor-app --test documentation_module_inspection_inventory --loc
 cargo test -p athanor-app --test documentation_status_inventory --locked
 cargo test -p ath --test documentation_architecture_cli --locked
 cargo test -p ath --test documentation_module_cli --locked
+cargo test -p athanor-transport-http --locked
+cargo test -p ath --test documentation_serve_cli --locked
 cargo fmt --all -- --check
 ```
 

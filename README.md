@@ -174,6 +174,20 @@ cargo run -p ath --quiet -- generate .
 
 Coordinated read models are written under `.athanor/generated/generations/<generation>` and selected through `.athanor/generated/current.json`. The individual commands retain their direct `.athanor/generated/current/*` compatibility outputs. Durable canonical snapshots are written under `.athanor/store/canonical/jsonl`.
 
+## Local Documentation Reader
+
+Read already published evidence-backed documents in a local browser, without an LLM:
+
+```bash
+cargo run -p ath --quiet -- docs serve . --bind 127.0.0.1:7878
+```
+
+Publish a profile first with `ath docs generate-<profile> . --snapshot <exact-snapshot>`; an empty
+catalog also explains that workflow. The reader provides cross-profile generation history, Markdown
+and citations, local search, and bounded Explore. Sources, canonical data, and published generations
+are not changed; retrieval may refresh a derived search cache. See the
+[HTTP reader guide](docs/adapters/transport-http.md) for limits and exact-source CI verification evidence.
+
 ## Documentation
 
 - [Documentation map](docs/README.md): where to find architecture, development workflow, adapter docs, and generated artifact notes.

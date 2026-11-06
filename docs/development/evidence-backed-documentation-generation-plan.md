@@ -22,7 +22,7 @@ source-implemented on `6fb5e34…`; exact self-evaluation `37292220926` confirms
 JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134250`) reaches `692/735`
 (`9414` bps) with Markdown `151/151`, completing in-policy coverage.
 
-The existing coordinated `ath generate` command is unchanged. No model provider, daemon, MCP, or new dependency is enabled.
+The existing coordinated `ath generate` command is unchanged. No model provider, daemon, or MCP integration is enabled; the separately scoped HTTP reader reuses the Markdown parser's HTML feature.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
@@ -292,9 +292,13 @@ or layout drift, invalid validation status, and checksum drift.
 The repaired bounded Rustok architecture-generation evaluation retains `DOCUMENTATION_REFERENCE_LIMIT`,
 `workflow_dispatch` support, and diagnostic evidence checks as explicit regression boundaries.
 
+## Separate Product Slice — Local Documentation Reader
+
+`ath docs serve` is a bounded loopback-only reader over publications and search/Explore, outside DOCGEN-001. Retrieval may refresh a derived cache; canonical writes/providers remain absent. See the [HTTP reader contract](../adapters/transport-http.md) for bounds, schemas, snapshot semantics, and exact-source Rust 1.95 CI evidence (`41926650130` on `1733559`).
+
 ## Next Bounded Step
 
-1. Preserve exact-commit verification when adding a separately justified semantic projection.
+1. Preserve exact-source reader CI evidence and require current-head/release gates; new semantic projections need their own execution evidence.
 2. In-policy coverage is complete after the rename; every remaining unprocessed file is a policy-excluded
    fixture, `Cargo.lock`, a non-semantic file, or the separately-gated OpenAPI fixture. New semantic gaps
    require a separately justified evidence-backed product scope.

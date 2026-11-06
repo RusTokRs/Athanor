@@ -266,7 +266,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Explain one canonical entity through the daemon's hot snapshot cache.
+    /// Explain one entity from the latest committed canonical snapshot.
     Explain {
         project_id: String,
         /// Exact canonical stable key, for example api://POST:/login.
@@ -279,7 +279,7 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// Search canonical entities through the daemon's hot snapshot cache.
+    /// Search the latest committed snapshot using its derived search index.
     Search {
         project_id: String,
         /// Search query terms.
@@ -1386,6 +1386,22 @@ mod tests {
                 assert!(!watch);
             }
             other => panic!("expected service install, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn read_help_describes_latest_committed_selection() {
+        for command in ["explain", "search"] {
+            let error = Cli::try_parse_from(["athd", command, "--help"])
+                .expect_err("help does not execute a read");
+            assert_eq!(error.kind(), clap::error::ErrorKind::DisplayHelp);
+            let text = error
+                .to_string()
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            assert!(text.contains("latest committed"), "{text}");
+            assert!(!text.contains("hot snapshot cache"), "{text}");
         }
     }
 

@@ -18,8 +18,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Semaphore, mpsc};
 
-use athanor_core::{CanonicalSnapshot, SearchIndex};
-use athanor_domain::ContextLevel;
+use athanor_core::SearchIndex;
+use athanor_domain::{ContextLevel, SnapshotId};
 
 use crate::daemon_client::request as request_daemon_transport;
 use crate::daemon_connection::{
@@ -317,7 +317,7 @@ pub(crate) struct DaemonState {
     pub(crate) jobs: Mutex<Vec<DaemonJob>>,
     pub(crate) next_job_sequence: Mutex<u64>,
     pub(crate) max_job_history: usize,
-    pub(crate) latest_snapshot_cache: Mutex<Option<CanonicalSnapshot>>,
+    pub(crate) last_observed_snapshot: Mutex<Option<SnapshotId>>,
     pub(crate) search_index_cache: Mutex<Option<CachedSearchIndex>>,
     pub(crate) overview_cache: Mutex<BoundedCache<OverviewCacheKey, RepositoryOverview>>,
     pub(crate) context_cache: Mutex<BoundedCache<ContextCacheKey, athanor_domain::ContextPack>>,
@@ -468,7 +468,7 @@ pub async fn serve_daemon_with_composition(
         }]),
         next_job_sequence: Mutex::new(2),
         max_job_history: options.max_job_history,
-        latest_snapshot_cache: Mutex::new(None),
+        last_observed_snapshot: Mutex::new(None),
         search_index_cache: Mutex::new(None),
         overview_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),
         context_cache: Mutex::new(BoundedCache::new(DERIVED_CACHE_CAPACITY)),

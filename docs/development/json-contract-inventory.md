@@ -98,21 +98,28 @@ An incompatible process change requires an explicit versioned envelope.
 
 ## Source-Literal Classifications
 
-Twenty canonical literals are explicitly source-classified outside stable public/general registries.
+Twenty-three canonical literals are explicitly source-classified outside stable public/general registries.
 They cover CLI/daemon composite envelopes, GraphQL/JS-TS metadata, JSONL indexes, accepted legacy
-inputs, and four intermediate documentation types:
+inputs, three HTTP documentation transport reports, and four intermediate documentation types:
 
 - `athanor.documentation_outline.v1` — `DocumentationOutline`;
 - `athanor.documentation_context.v1` — `DocumentationContext`;
 - `athanor.documentation_citation.v1` — `DocumentationCitation`;
 - `athanor.documentation_draft.v1` — `DocumentationDraft`.
 
-These four are strict in-memory application contracts. The validation report is no longer in this
-category because Slice 1B publishes it as a generated artifact.
+The HTTP reader owns `athanor.documentation_serve.v1` (start-up report),
+`athanor.documentation_serve_catalog.v1` (bounded per-request catalog), and
+`athanor.documentation_serve_error.v1` (routed JSON error envelope). They are source-classified because
+their owners live in `athanor-transport-http`, not in the inward application report registry. The
+transport's schema tests and CLI suite protect those shapes. Existing search/Explore reports and the
+published manifest retain their own schemas; no storage or daemon/MCP revision is introduced.
+
+The four intermediate documentation types are strict in-memory application contracts. The validation
+report is no longer in this category because Slice 1B publishes it as a generated artifact.
 
 ## Enforcement
 
-- `VERSIONED_JSON_CONTRACTS` protects 62 public owners.
+- `VERSIONED_JSON_CONTRACTS` protects 64 public owners.
 - `NON_PUBLIC_JSON_CONTRACTS` protects 32 general boundaries.
 - Adapter and automation registries remain disjoint from public/general contracts.
 - `PROCESS_PROTOCOL_CONTRACTS` protects four schema-less shapes and framing.
@@ -139,6 +146,8 @@ cargo test -p athanor-app --test documentation_generation_slice0b_inventory --lo
 cargo test -p athanor-app --test documentation_architecture_profile_inventory --locked
 cargo test -p athanor-app --test documentation_architecture_publication_inventory --locked
 cargo test -p athanor-app --test json_contract_inventory --locked
+cargo test -p athanor-transport-http --locked
+cargo test -p ath --test documentation_serve_cli --locked
 cargo test -p athanor-app --test process_persistence_contract_inventory --locked
 cargo test -p athanor-app --test adapter_contract_inventory --locked
 cargo test -p athanor-app --test public_report_transport_inventory --locked

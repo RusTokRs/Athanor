@@ -33,6 +33,7 @@ members = [
     "crates/athanor-store-conformance",
     "crates/athanor-store-surrealdb",
     "crates/athanor-search-tantivy",
+    "crates/athanor-transport-http",
     "crates/athanor-transport-mcp",
 ]
 resolver = "3"

@@ -62,6 +62,13 @@ seconds by default, and then removes endpoint and token files. The OS-held lock 
 automatically after crashes, and the next successful lock acquisition replaces stale lock metadata,
 so stale lock files do not block restart or preserve old process identity.
 
+## Read Freshness
+
+Daemon read reports resolve latest committed Store state per request; external CLI index commits do
+not require a daemon restart. Status `cache.last_observed_snapshot` records the last successful Store selection,
+not a live Store/source-freshness probe. Derived caches stay snapshot-keyed; no implicit indexing or
+pointer repair occurs. See [query freshness](query-freshness.md) for F1 scope, costs, and verification.
+
 ## Fault Recovery Boundaries
 
 Cancellation is exercised against real background index and coordinated generation jobs. Before

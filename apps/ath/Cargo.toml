@@ -22,6 +22,7 @@ athanor-app = { path = "../../crates/athanor-app" }
 athanor-core = { path = "../../crates/athanor-core" }
 athanor-domain = { path = "../../crates/athanor-domain" }
 athanor-runtime-defaults = { path = "../../crates/athanor-runtime-defaults" }
+athanor-transport-http = { path = "../../crates/athanor-transport-http" }
 athanor-transport-mcp = { path = "../../crates/athanor-transport-mcp" }
 clap.workspace = true
 serde.workspace = true

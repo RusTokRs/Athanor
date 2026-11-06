@@ -142,6 +142,15 @@ Every tool accepts an optional `deadline_unix_ms` field: a future Unix timestamp
 
 Read tools are registered by serialized JSON-RPC request id so cancellation notifications can address their operation. Overview and Capabilities are plain registered reads over the latest committed snapshot. Search, Explore, Context, Change Map, and RusTok architecture context use drained operation paths because they may own cooperative or blocking cleanup. `index` receives deadline state but remains excluded from notification-driven cancellation pending an explicit transactional rollback and durable-success review.
 
+## Query Freshness
+
+Direct MCP reads select the latest committed Store snapshot per tool call, including when another
+`ath index` process publishes while the same stdio session remains open. A source edit without an
+index commit is not automatic synchronization; missing/broken latest state fails instead of serving
+stale success. F1 aligns daemon read selection with this rule without adding daemon routing to MCP.
+See [query freshness](../development/query-freshness.md) for snapshot boundaries, status observations,
+cache costs, compatibility, and real-process regression coverage.
+
 ## Logging
 
 To avoid corrupting the stdio JSON-RPC stream, all startup messages, diagnostics, and request-task failures are written to `stderr`. Only protocol responses are written to `stdout`.
