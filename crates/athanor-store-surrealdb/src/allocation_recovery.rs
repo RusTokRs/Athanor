@@ -103,9 +103,9 @@ impl SurrealKnowledgeStore {
         let mut removed = Vec::with_capacity(candidates.len());
         for candidate in candidates {
             let candidate = snapshot_from_value(candidate)?;
-            if !candidate
+            if candidate
                 .allocation_created_at_unix_ms
-                .is_some_and(|created| created <= stale_before_unix_ms)
+                .is_none_or(|created| created > stale_before_unix_ms)
             {
                 continue;
             }
