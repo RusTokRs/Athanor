@@ -1315,13 +1315,16 @@ fn collect_module_declarations(
 
     let mut declarations = Vec::new();
     // A crate-level cfg can disable the entire file, including every
-    // otherwise unconditional declaration below it.
-    let mut opaque_attributes = cfg_unresolved(&syntax.attrs);
+    // otherwise unconditional declaration below it. Preserve that uncertainty
+    // on each declaration as well as on the file's scan marker, so the planner
+    // can verify the evidence without treating a child as reachable.
+    let crate_conditional = cfg_unresolved(&syntax.attrs);
+    let mut opaque_attributes = crate_conditional;
     visit_items(
         &syntax.items,
         file_module,
         &[],
-        false,
+        crate_conditional,
         false,
         &mut declarations,
         &mut opaque_attributes,

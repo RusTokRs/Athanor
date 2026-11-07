@@ -2647,6 +2647,19 @@ impl Worker for Local { fn work(&self) {} }
         report
             .issues
             .iter()
+            .any(|issue| issue.kind == "unverified_rust_symbol_presence")
+    );
+
+    let mut missing_type = model.clone();
+    missing_type
+        .entities
+        .retain(|entity| !(entity.kind == EntityKind::Symbol && entity.name == "Local"));
+    let report = plan(&missing_type);
+    assert!(!report.rust_symbols.iter().any(|row| row.name == "keep"));
+    assert!(
+        report
+            .issues
+            .iter()
             .any(|issue| issue.kind == "unverified_rust_associated_owner")
     );
 

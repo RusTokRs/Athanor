@@ -294,10 +294,6 @@ impl<'a> EvidenceIndex<'a> {
             .then_some(fact)
     }
 
-    fn symbol_definition(&self, entity: &Entity, path: &str) -> bool {
-        self.definition_fact(entity, path).is_some()
-    }
-
     fn source(&self, path: &str) -> Result<VerifiedSource, &'static str> {
         let Some(roots) = self.roots.get(path).filter(|roots| roots.len() == 1) else {
             return Err("rust_source_evidence_unavailable");
@@ -363,6 +359,22 @@ impl<'a> EvidenceIndex<'a> {
         if facts.len() != scan.declarations {
             return Err("incomplete_rust_module_facts");
         }
+        // Multiple declarations of one name share a single extractor entity
+        // with multiple definition spans. They cannot establish a child scope,
+        // but they must not hide independently proven symbols in this File.
+        let mut declaration_spans = BTreeMap::<&str, Vec<(Option<u32>, Option<u32>)>>::new();
+        for fact in facts {
+            let name = fact
+                .value
+                .get("qualified_name")
+                .and_then(|value| value.as_str())
+                .ok_or("invalid_rust_module_fact")?;
+            declaration_spans.entry(name).or_default().push(
+                fact.evidence
+                    .first()
+                    .map_or((None, None), |span| (span.line_start, span.line_end)),
+            );
+        }
         let mut ordinals = BTreeSet::new();
         let mut declarations = Vec::new();
         for fact in facts {
@@ -405,24 +417,56 @@ impl<'a> EvidenceIndex<'a> {
             else {
                 return Err("invalid_rust_module_fact");
             };
+            let claims = declaration_spans
+                .get(value.qualified_name.as_str())
+                .ok_or("invalid_rust_module_fact")?;
+            let definition = self
+                .definition_fact(entity, path)
+                .ok_or("invalid_rust_module_fact")?;
+            let mut defined = definition
+                .evidence
+                .iter()
+                .map(|span| (span.line_start, span.line_end))
+                .collect::<Vec<_>>();
+            let mut claimed = claims.clone();
+            defined.sort_unstable();
+            claimed.sort_unstable();
+            let source = entity.source.as_ref().ok_or("invalid_rust_module_fact")?;
             if entity.kind != EntityKind::Module
                 || entity.name != value.name
                 || rust_file_symbol_identity(entity) != Some((path, value.qualified_name.as_str()))
-                || !self.symbol_definition(entity, path)
-                || (!value.conditional
+                || entity
+                    .payload
+                    .get("definitions")
+                    .and_then(|value| value.as_u64())
+                    != Some(claims.len() as u64)
+                || defined != claimed
+                || definition.evidence.iter().any(|span| {
+                    span.source_file.as_deref() != Some(path)
+                        || span.extractor.as_deref() != Some("rust")
+                        || span.status != EvidenceStatus::Verified
+                        || !span.confidence.is_finite()
+                        || span.confidence <= 0.0
+                })
+                || source.line_start != claims.iter().filter_map(|(start, _)| *start).min()
+                || source.line_end != claims.iter().filter_map(|(_, end)| *end).max()
+                || (claims.len() == 1
+                    && !value.conditional
                     && !value.custom_path
                     && entity
                         .payload
                         .get("rust_presence_unverified")
                         .and_then(|value| value.as_bool())
                         != Some(false))
+                || (claims.len() > 1
+                    && entity
+                        .payload
+                        .get("rust_presence_unverified")
+                        .and_then(|value| value.as_bool())
+                        != Some(true))
                 || fact.evidence.len() != 1
                 || fact.evidence[0].line_start.is_none_or(|line| line == 0)
                 || fact.evidence[0].line_start > fact.evidence[0].line_end
-                || entity.source.as_ref().and_then(|source| source.line_start)
-                    != fact.evidence[0].line_start
-                || entity.source.as_ref().and_then(|source| source.line_end)
-                    != fact.evidence[0].line_end
             {
                 return Err("invalid_rust_module_fact");
             }

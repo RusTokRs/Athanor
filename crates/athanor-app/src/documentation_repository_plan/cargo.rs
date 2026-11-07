@@ -216,14 +216,14 @@ pub(super) fn discover(
         if targets
             .as_ref()
             .is_some_and(|config| config.edition_inherited)
-            && !workspace_manifest
+            && workspace_manifest
                 .as_deref()
                 .and_then(|manifest| {
                     workspaces
                         .iter()
                         .find(|workspace| workspace.manifest == manifest)
                 })
-                .is_some_and(|workspace| workspace.edition.is_some())
+                .is_none_or(|workspace| workspace.edition.is_none())
         {
             membership = "unresolved";
             issues.push(DocumentationPlanIssue::new(
