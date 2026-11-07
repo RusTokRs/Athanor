@@ -19,6 +19,9 @@ jobs:
     name: Store contract / ${{ matrix.backend }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # SurrealDB 4's embedded engine exhausts Rust's default 2 MiB test-thread stack.
+    env:
+      RUST_MIN_STACK: "16777216"
     strategy:
       fail-fast: false
       matrix:
@@ -48,14 +51,6 @@ jobs:
         run: |
           bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/store-${{ matrix.backend }}.log" \
             "store-${{ matrix.backend }} log tail" cargo test -p "${{ matrix.package }}" --locked
-      - name: Diagnose embedded stack on test failure
-        if: ${{ failure() && matrix.backend == 'surrealdb-embedded' }}
-        shell: bash
-        env:
-          RUST_MIN_STACK: 16777216
-        run: |
-          bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/surrealdb-stack-diagnostic.log" \
-            "SurrealDB stack diagnostic" cargo test -p athanor-store-surrealdb --lib --locked -- --nocapture
 
   surrealdb-remote:
     name: Store contract / surrealdb-remote

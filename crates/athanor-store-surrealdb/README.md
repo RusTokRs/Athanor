@@ -42,6 +42,11 @@ Persists:
 
 ## Tests
 
+SurrealDB 4's embedded engine can overflow the default Rust test-thread stack. CI sets a 16 MiB
+minimum; use the same setting for local embedded tests (PowerShell: set `$env:RUST_MIN_STACK`
+first). Applications embedding this crate must give their runtime's initial and worker threads
+sufficient stack; `ath` and `athd` configure 16 MiB when built with `store-surreal`.
+
 ```bash
-cargo test -p athanor-store-surrealdb
+RUST_MIN_STACK=16777216 cargo test -p athanor-store-surrealdb --locked
 ```

@@ -56,6 +56,10 @@ SurrealDB maps Athanor entities to structured document tables:
 
 ## Tests
 
+SurrealDB 4's embedded engine can exceed the default Rust test-thread stack. CI uses a 16 MiB
+minimum; applications embedding this adapter must configure their runtime's initial and worker
+thread stacks as well. `ath` and `athd` do so with the `store-surreal` feature enabled.
+
 ```bash
-cargo test -p athanor-store-surrealdb
+RUST_MIN_STACK=16777216 cargo test -p athanor-store-surrealdb --locked
 ```

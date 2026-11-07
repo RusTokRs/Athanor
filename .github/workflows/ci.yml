@@ -95,6 +95,8 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: 1
+      # Embedded SurrealDB 4 needs more than Rust's default test-thread stack.
+      RUST_MIN_STACK: "16777216"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -197,6 +199,7 @@ jobs:
           - all-features
     env:
       CARGO_TERM_COLOR: always
+      RUST_MIN_STACK: "16777216"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -238,6 +241,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUST_BACKTRACE: 1
+      RUST_MIN_STACK: "16777216"
     steps:
       - name: Check out repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
