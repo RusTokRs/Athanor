@@ -7,8 +7,6 @@ mod cargo;
 mod modules;
 mod outputs;
 mod symbols;
-#[cfg(test)]
-mod tests;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -778,3 +776,6 @@ fn join(root: &str, suffix: &str) -> String {
 fn invalid(message: impl Into<String>) -> DocumentationContractError {
     DocumentationContractError(message.into())
 }
+
+#[cfg(test)]
+mod tests;
