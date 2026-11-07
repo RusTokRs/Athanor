@@ -6,6 +6,7 @@ mod legacy {
     include!("index_state.rs");
 }
 
+pub(crate) use legacy::LEGACY_INDEX_STATE_SCHEMAS;
 pub use legacy::{AffectedFileSet, FileState, INDEX_STATE_SCHEMA, IndexState, PreparedIndexState};
 
 /// Index-state store with pointer-first reads and compatibility writes to the configured path.

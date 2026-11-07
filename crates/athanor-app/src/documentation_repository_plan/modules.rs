@@ -590,13 +590,6 @@ pub(super) fn discover(
                     inline_modules.insert(value.qualified_name.clone());
                 }
             }
-            scopes.insert(
-                node.path.clone(),
-                VerifiedSymbolScope {
-                    local_root: source.root.clone(),
-                    modules: inline_modules,
-                },
-            );
             for declaration in &source.declarations {
                 let value = &declaration.value;
                 if value.form != "external" {
@@ -693,6 +686,13 @@ pub(super) fn discover(
                     target_root: false,
                 });
             }
+            scopes.insert(
+                node.path.clone(),
+                VerifiedSymbolScope {
+                    local_root: source.root.clone(),
+                    modules: inline_modules,
+                },
+            );
         }
     }
 

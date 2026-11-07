@@ -63,7 +63,7 @@ pub async fn plan_documentation_repository_with_composition(
         bail!("repository documentation Store resolves outside the project root");
     }
     reject_jsonl_symlinks(&root, store_relative, &options.request.snapshot)?;
-    let store = JsonlKnowledgeStore::new(canonical_store_path);
+    let store = JsonlKnowledgeStore::new(canonical_store_path.clone());
     let expected = SnapshotId(options.request.snapshot.clone());
     let snapshot = store
         .load_snapshot(&expected)
