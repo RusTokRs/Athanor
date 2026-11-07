@@ -56,9 +56,10 @@ Constraints:
    through an optional feature (today: none — `memmap2` arrives via the default-on
    Tantivy search), the owning adapter either upgrades, replaces the transitive, or the
    feature becomes non-default with a recorded rationale. The default `ath`/`athd`
-   binaries must pass `cargo audit` with zero unignored advisories.
+   binaries must pass the target-aware `cargo-deny` advisory check with no unignored advisories.
 5. **Weekly hygiene gate.** The existing `Security & License Checks` CI job remains the
-   enforcement point; `cargo audit` output is attached as a workflow artifact for review.
+   enforcement point; failing `cargo-deny` output is attached as a workflow artifact for review.
+   The scheduled Security Audit uses the same native-target graph and reports failures through issues.
 
 ## Consequences
 
@@ -73,9 +74,8 @@ Constraints:
   upgrading `tantivy`/`surrealdb`/`tree-sitter`/`oxc_*` or recording dated ignores;
   (3) re-run `cargo-deny check`, the feature matrix, and the store conformance suite;
   (4) record exact CI run ids in the verification ledger.
-- Verification: `cargo deny check` green, `cargo audit` with zero unignored advisories
-  in the default feature set, `cargo test --workspace --locked` green on Linux, Windows,
-  and macOS.
+- Verification: `cargo deny check` green with zero unignored advisories for supported native
+  targets, `cargo test --workspace --locked` green on Linux, Windows, and macOS.
 
 ## Follow-up: SurrealDB security upgrade (2026-11-07)
 
@@ -85,3 +85,13 @@ transitive without excluding the adapter from advisory checks or adding advisory
 major SDK change requires typed database record IDs and explicit conversions at the adapter
 boundary; the canonical Athanor JSON representation remains unchanged. Persistent SurrealDB 2
 files must be backed up and migrated with a supported procedure before upgrading the engine.
+
+SurrealDB 4 also depends on `jsonwebtoken/rust_crypto` **only on WebAssembly**. That feature adds
+`rsa 0.9.10` (RUSTSEC-2023-0071, no patched stable release) and the older `crypto-bigint` (a
+separate timing advisory) to the cross-platform lockfile. Athanor does not ship or test WebAssembly
+and uses the native `aws_lc_rs` JWT backend. `deny.toml` therefore selects the native Linux,
+Windows, and macOS target graphs for *all* cargo-deny checks; no advisory is ignored for a
+supported target. Native-target coverage must be extended before shipping any additional target,
+notably WebAssembly. Lockfile-only `cargo audit` does not distinguish target dependencies and
+cannot substitute for this target-aware policy. The reviewed BUSL-1.1 exceptions for SurrealDB 4
+are license-specific and version-pinned; they do not change advisory enforcement.

@@ -3,9 +3,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use athanor_core::{CoreError, CoreResult, OperationContext};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
 use serde_json::Value;
-use surrealdb::types::SerdeWrapper;
+use surrealdb::types::Value as DbValue;
 
-use super::{SnapshotRecord, SurrealKnowledgeStore, snapshot_content};
+use super::{SnapshotRecord, SurrealKnowledgeStore, snapshot_content, snapshot_from_value};
 
 const MAX_ORPHAN_CLEANUP_BATCH: usize = 128;
 const DEFAULT_ORPHAN_MIN_AGE_MS: u64 = 24 * 60 * 60 * 1_000;
@@ -94,18 +94,21 @@ impl SurrealKnowledgeStore {
                     "stale snapshot allocation selection failed: {error}"
                 ))
             })?;
-        let candidates: Vec<SerdeWrapper<SnapshotRecord>> = response.take(0).map_err(|error| {
+        let candidates: Vec<DbValue> = response.take(0).map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to parse stale snapshot allocations: {error}"
             ))
         })?;
 
         let mut removed = Vec::with_capacity(candidates.len());
-        for SerdeWrapper(candidate) in candidates.into_iter().filter(|SerdeWrapper(candidate)| {
-            candidate
+        for candidate in candidates {
+            let candidate = snapshot_from_value(candidate)?;
+            if !candidate
                 .allocation_created_at_unix_ms
                 .is_some_and(|created| created <= stale_before_unix_ms)
-        }) {
+            {
+                continue;
+            }
             let snapshot = SnapshotId(candidate.id);
             let mut delete_response = self
                 .db

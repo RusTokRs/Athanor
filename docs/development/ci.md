@@ -83,6 +83,15 @@ failed check uploads `cargo-deny-diagnostics` for retrieval instead of burying t
 build log. `workflow_toolchain_inventory.rs` enforces the local setup, workflow coverage, diagnostic
 artifact, and owner line budgets.
 
+`deny.toml` audits the native Linux, Windows, and macOS target graphs used by CI/releases, with
+all advisories still denied. SurrealDB 4's WebAssembly-only JWT crypto dependencies are present
+in `Cargo.lock` but are not compiled for a supported Athanor target; they have outstanding timing
+advisories with no patched RSA release. Adding WebAssembly support requires extending the graph
+and fixing those dependencies first. The native-target rationale and license review are recorded
+in [ADR-001](adr-001-dependency-advisory-strategy.md). The scheduled/manual Security Audit
+uses the same target-aware cargo-deny policy rather than a lockfile-only audit, and creates or
+updates an issue when it fails; it still enforces the unsafe-code policy.
+
 ## Workspace quality
 
 ```bash

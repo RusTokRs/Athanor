@@ -8,7 +8,6 @@ on:
 permissions:
   contents: read
   issues: write
-  checks: write
 
 jobs:
   audit:
@@ -19,10 +18,39 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
-      - name: Run security audit
-        uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          ignore: RUSTSEC-2026-0235
+      - name: Install Rust 1.95
+        uses: ./.github/actions/setup-rust
+      - name: Install cargo-deny
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/cargo-deny-bin"
+          curl --proto '=https' --tlsv1.2 --retry 5 --retry-all-errors \
+            --location --silent --show-error --fail \
+            https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C "$RUNNER_TEMP/cargo-deny-bin" --strip-components=1
+          "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" --version
+      - name: Audit supported native dependency graph
+        id: cargo-deny
+        shell: bash
+        run: |
+          bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/native-dependency-audit.log" \
+            "native dependency audit log tail" "$RUNNER_TEMP/cargo-deny-bin/cargo-deny" check
+      - name: Report dependency audit failure
+        if: ${{ failure() && steps.cargo-deny.outcome == 'failure' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          title="Athanor native dependency audit failed"
+          body="Target-aware cargo-deny failed on [run $GITHUB_RUN_ID]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID). Review the job's advisory and license diagnostics; do not ignore advisories."
+          issue=$(gh issue list --state open --search 'Athanor native dependency audit failed in:title' \
+            --json number,title --jq '.[] | select(.title == "Athanor native dependency audit failed") | .number' | head -n 1)
+          if [[ -n "$issue" ]]; then
+            gh issue comment "$issue" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
       - name: Enforce unsafe-code policy
         run: cargo check --workspace --config 'build.rustflags=["-Dunsafe_code"]'

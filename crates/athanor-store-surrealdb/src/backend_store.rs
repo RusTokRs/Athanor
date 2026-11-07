@@ -11,12 +11,11 @@ use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, GenerationId, Relation, RepoId, SnapshotBase, SnapshotId,
     StableKey,
 };
-use serde::de;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
-use surrealdb::types::{RecordId, RecordIdKey, SerdeWrapper, SurrealValue, Value as DbValue};
+use surrealdb::types::{RecordId, RecordIdKey, SurrealValue, Value as DbValue};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 
@@ -34,7 +33,6 @@ pub struct SurrealKnowledgeStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SnapshotRecord {
-    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     repo: String,
     base_branch: Option<String>,
@@ -54,25 +52,44 @@ struct SnapshotRecord {
     allocation_created_at_unix_ms: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct CounterRecord {
-    count: u64,
-}
-
-fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let id = RecordId::deserialize(deserializer)?;
-    if id.table.as_str() != "snapshot" {
-        return Err(de::Error::custom("snapshot record has an unexpected table"));
+// Decode typed database identities before converting the remaining payload to
+// JSON. In SDK v4, serde deserialization of a raw RecordId and of missing
+// optional fields differs between local and remote engines; normalizing the
+// payload at this boundary keeps domain IDs and fail-closed reads identical.
+fn snapshot_from_value(value: DbValue) -> CoreResult<SnapshotRecord> {
+    let DbValue::Object(mut fields) = value else {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record is not an object".to_string(),
+        ));
+    };
+    let record_id = match fields.remove("id") {
+        Some(DbValue::RecordId(id)) => id,
+        Some(DbValue::String(id)) => RecordId::parse_simple(&id).map_err(|error| {
+            CoreError::AdapterProtocol(format!("invalid snapshot record id {id:?}: {error}"))
+        })?,
+        _ => {
+            return Err(CoreError::AdapterProtocol(
+                "snapshot record is missing a typed id".to_string(),
+            ));
+        }
+    };
+    if record_id.table.as_str() != "snapshot" {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record has an unexpected table".to_string(),
+        ));
     }
-    match id.key {
-        RecordIdKey::String(value) => Ok(value),
-        _ => Err(de::Error::custom(
-            "snapshot record does not have a string key",
-        )),
-    }
+    let RecordIdKey::String(id) = record_id.key else {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record does not have a string key".to_string(),
+        ));
+    };
+    let mut json = DbValue::Object(fields).into_json_value();
+    let Value::Object(map) = &mut json else {
+        unreachable!("snapshot fields were an object");
+    };
+    map.insert("id".to_string(), Value::String(id));
+    serde_json::from_value(json)
+        .map_err(|error| CoreError::AdapterProtocol(format!("invalid snapshot record: {error}")))
 }
 
 fn snapshot_allocation_nonce() -> String {
@@ -131,26 +148,35 @@ impl SurrealKnowledgeStore {
                     )));
                 }
             };
-            let counter: Option<SerdeWrapper<CounterRecord>> =
-                response.take(0).map_err(|error| {
-                    CoreError::Adapter(format!("failed to parse snapshot counter: {error}"))
-                })?;
-            return counter.map(|counter| counter.0.count).ok_or_else(|| {
-                CoreError::Adapter("snapshot counter returned no record".to_string())
-            });
+            let counter: Option<Value> = response.take(0).map_err(|error| {
+                CoreError::Adapter(format!("failed to parse snapshot counter: {error}"))
+            })?;
+            return counter
+                .and_then(|counter| counter.get("count").and_then(Value::as_u64))
+                .ok_or_else(|| {
+                    CoreError::Adapter("snapshot counter returned no integer count".to_string())
+                });
         }
         unreachable!("snapshot counter retry loop always returns");
     }
 
     async fn load_snapshot_record(&self, snapshot: &SnapshotId) -> CoreResult<SnapshotRecord> {
-        let record: Option<SerdeWrapper<SnapshotRecord>> = self
+        let record: Option<DbValue> = self
             .db
             .select(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| CoreError::Adapter(format!("load snapshot failed: {error}")))?;
-        record
-            .map(|SerdeWrapper(record)| record)
-            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+        let record = record
+            .map(snapshot_from_value)
+            .transpose()?
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if record.id != snapshot.0 {
+            return Err(CoreError::AdapterProtocol(format!(
+                "snapshot lookup returned a different ID: {}",
+                record.id
+            )));
+        }
+        Ok(record)
     }
 
     async fn ensure_writable_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<()> {
@@ -211,14 +237,13 @@ impl SurrealKnowledgeStore {
                     .map_err(|error| {
                         CoreError::Adapter(format!("query latest snapshot failed: {error}"))
                     })?;
-                let records: Vec<SerdeWrapper<SnapshotRecord>> =
-                    response.take(0).map_err(|error| {
-                        CoreError::Adapter(format!("parse latest snapshot failed: {error}"))
-                    })?;
-                let SerdeWrapper(record) = records
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| CoreError::NotFound("no committed snapshot".to_string()))?;
+                let records: Vec<DbValue> = response.take(0).map_err(|error| {
+                    CoreError::Adapter(format!("parse latest snapshot failed: {error}"))
+                })?;
+                let record =
+                    snapshot_from_value(records.into_iter().next().ok_or_else(|| {
+                        CoreError::NotFound("no committed snapshot".to_string())
+                    })?)?;
                 let snapshot = SnapshotId(record.id.clone());
                 validate_committed_generation(&record, &snapshot)?;
                 return Ok(snapshot);
@@ -392,11 +417,16 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                     )));
                 }
             };
-            let created: Option<SerdeWrapper<SnapshotRecord>> =
-                response.take(0).map_err(|error| {
-                    CoreError::Adapter(format!("failed to parse created snapshot record: {error}"))
-                })?;
-            if created.is_some() {
+            let created: Option<DbValue> = response.take(0).map_err(|error| {
+                CoreError::Adapter(format!("failed to parse created snapshot record: {error}"))
+            })?;
+            if let Some(created) = created {
+                let created = snapshot_from_value(created)?;
+                if created.id != snapshot_id || created.repo != repo {
+                    return Err(CoreError::AdapterProtocol(
+                        "snapshot allocation returned a different record".to_string(),
+                    ));
+                }
                 return Ok(SnapshotId(snapshot_id));
             }
             if attempt + 1 < MAX_ATTEMPTS {
@@ -754,16 +784,22 @@ impl EntityResolver for SurrealKnowledgeStore {
 #[async_trait]
 impl CanonicalSnapshotStore for SurrealKnowledgeStore {
     async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
-        let snapshot_record: Option<SerdeWrapper<SnapshotRecord>> = self
+        let snapshot_record: Option<DbValue> = self
             .db
             .select(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!("failed to load snapshot record: {error}"))
             })?;
-        let Some(SerdeWrapper(snapshot_record)) = snapshot_record else {
+        let Some(snapshot_record) = snapshot_record else {
             return Ok(None);
         };
+        let snapshot_record = snapshot_from_value(snapshot_record)?;
+        if snapshot_record.id != snapshot.0 {
+            return Err(CoreError::AdapterProtocol(
+                "snapshot lookup returned a different ID".to_string(),
+            ));
+        }
         if !snapshot_record.committed {
             return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
         }
@@ -796,12 +832,13 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
                     "failed to query latest committed snapshot: {error}"
                 ))
             })?;
-        let snapshots: Vec<SerdeWrapper<SnapshotRecord>> = response.take(0).map_err(|error| {
+        let snapshots: Vec<DbValue> = response.take(0).map_err(|error| {
             CoreError::Adapter(format!("failed to parse latest snapshot query: {error}"))
         })?;
 
-        if let Some(SerdeWrapper(latest)) = snapshots.first() {
-            self.load_snapshot(&SnapshotId(latest.id.clone())).await
+        if let Some(latest) = snapshots.into_iter().next() {
+            let latest = snapshot_from_value(latest)?;
+            self.load_snapshot(&SnapshotId(latest.id)).await
         } else {
             Ok(None)
         }
@@ -900,6 +937,46 @@ mod tests {
             ownership: Vec::new(),
             payload: json!({}),
         }
+    }
+
+    #[test]
+    fn snapshot_record_ids_round_trip_and_reject_wrong_tables_or_keys() {
+        let mut value = json!({
+            "repo": "repo_test",
+            "base_branch": null,
+            "base_commit": null,
+            "base_parent_snapshot": null,
+            "base_working_tree": true,
+            "sequence": 1,
+            "prepared": false,
+            "committed": false
+        })
+        .into_value();
+        let DbValue::Object(fields) = &mut value else {
+            panic!("snapshot payload must be an object");
+        };
+        fields.insert("id", RecordId::new("snapshot", "snap_surreal_test"));
+        assert_eq!(
+            snapshot_from_value(value.clone()).unwrap().id,
+            "snap_surreal_test"
+        );
+
+        let DbValue::Object(fields) = &mut value else {
+            unreachable!();
+        };
+        fields.insert("id", RecordId::new("other", "snap_surreal_test"));
+        assert!(matches!(
+            snapshot_from_value(value.clone()),
+            Err(CoreError::AdapterProtocol(_))
+        ));
+        let DbValue::Object(fields) = &mut value else {
+            unreachable!();
+        };
+        fields.insert("id", RecordId::new("snapshot", 42_i64));
+        assert!(matches!(
+            snapshot_from_value(value),
+            Err(CoreError::AdapterProtocol(_))
+        ));
     }
 
     #[test]

@@ -1,5 +1,19 @@
 # cargo-deny configuration
 
+[graph]
+# Athanor ships native Linux/Windows binaries and checks native macOS in CI.
+# The SurrealDB 4 dependency enables `jsonwebtoken/rust_crypto` only for WASM;
+# it pulls vulnerable rsa/crypto-bigint versions, but none of that code is
+# built for these native targets. WASM is not a supported Athanor target. If it
+# becomes supported, audit it here and remediate its crypto dependencies first.
+# Keep all advisories denied for every target we actually build and verify.
+targets = [
+    "x86_64-unknown-linux-gnu",
+    "x86_64-pc-windows-msvc",
+    "x86_64-apple-darwin",
+    "aarch64-apple-darwin",
+]
+
 [advisories]
 version = 2
 db-path = "~/.cargo/advisories"
@@ -20,6 +34,7 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "BSL-1.0",
+    "CDLA-Permissive-2.0", # webpki-root-certs 1.x Mozilla trust data
     "Unlicense",
     "Zlib",
 ]
