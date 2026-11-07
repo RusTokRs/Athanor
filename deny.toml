@@ -23,9 +23,36 @@ allow = [
     "Unlicense",
     "Zlib",
 ]
+# SurrealDB's published 4.0.0 workspace crates inherit its BUSL-1.1
+# license-file. Limit the reviewed exception to this exact release. This is a
+# license exception, not an advisory or security-policy exception.
 exceptions = [
-    { allow = ["BUSL-1.1"], name = "surrealdb", version = "*" },
-    { allow = ["BUSL-1.1"], name = "surrealdb-core", version = "*" },
+    { allow = ["BUSL-1.1"], name = "surrealdb", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-catalog", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-cnf", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-collections", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-common", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-core", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-datastore", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-engine-api", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-engine-local", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-expr", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-iam", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-idx", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-keyspace-macro", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-kvs", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-kvs-any", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-kvs-mem", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-kvs-surrealkv", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-observe", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-parse-common", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-parser-next", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-rpc", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-runtime", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-stored-derive", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-strand", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-types", version = "=4.0.0" },
+    { allow = ["BUSL-1.1"], name = "surrealdb-types-derive", version = "=4.0.0" },
 ]
 
 [bans]

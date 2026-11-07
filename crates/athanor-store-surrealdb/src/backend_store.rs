@@ -145,7 +145,7 @@ impl SurrealKnowledgeStore {
     async fn load_snapshot_record(&self, snapshot: &SnapshotId) -> CoreResult<SnapshotRecord> {
         let record: Option<SerdeWrapper<SnapshotRecord>> = self
             .db
-            .select(("snapshot", &snapshot.0))
+            .select(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| CoreError::Adapter(format!("load snapshot failed: {error}")))?;
         record
@@ -268,7 +268,7 @@ fn validate_committed_generation(record: &SnapshotRecord, snapshot: &SnapshotId)
 }
 
 async fn initialize_snapshot_counter(db: &Surreal<Any>) -> CoreResult<()> {
-    db.query("INSERT IGNORE INTO meta [{ id: 'snapshot_counter', count: 0 }] RETURN NONE;")
+    db.query("INSERT IGNORE INTO meta [{ id: meta:snapshot_counter, count: 0 }] RETURN NONE;")
         .await
         .map_err(|error| {
             CoreError::Adapter(format!("failed to initialize snapshot counter: {error}"))
@@ -533,7 +533,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         record.prepared = true;
         let _: Option<Value> = self
             .db
-            .update(("snapshot", &snapshot.0))
+            .update(("snapshot", snapshot.0.as_str()))
             .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
@@ -675,7 +675,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         record.generation = Some(GenerationId::for_snapshot(&snapshot));
         let _: Option<Value> = self
             .db
-            .update(("snapshot", &snapshot.0))
+            .update(("snapshot", snapshot.0.as_str()))
             .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
@@ -713,13 +713,13 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                 CoreError::Adapter(format!("aborted snapshot cleanup rolled back: {error}"))
             })?;
 
-        let _: Option<Value> =
-            self.db
-                .delete(("snapshot", &snapshot.0))
-                .await
-                .map_err(|error| {
-                    CoreError::Adapter(format!("failed to delete aborted snapshot: {error}"))
-                })?;
+        let _: Option<Value> = self
+            .db
+            .delete(("snapshot", snapshot.0.as_str()))
+            .await
+            .map_err(|error| {
+                CoreError::Adapter(format!("failed to delete aborted snapshot: {error}"))
+            })?;
         Ok(())
     }
 }
@@ -756,7 +756,7 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
     async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
         let snapshot_record: Option<SerdeWrapper<SnapshotRecord>> = self
             .db
-            .select(("snapshot", &snapshot.0))
+            .select(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!("failed to load snapshot record: {error}"))
@@ -959,7 +959,7 @@ mod tests {
         record.generation = Some(GenerationId("gen_foreign".to_string()));
         let _: Option<Value> = store
             .db
-            .update(("snapshot", &snapshot.0))
+            .update(("snapshot", snapshot.0.as_str()))
             .content(snapshot_content(&record).unwrap())
             .await
             .unwrap();
@@ -989,7 +989,7 @@ mod tests {
         record.generation = None;
         let _: Option<Value> = store
             .db
-            .update(("snapshot", &snapshot.0))
+            .update(("snapshot", snapshot.0.as_str()))
             .content(snapshot_content(&record).unwrap())
             .await
             .unwrap();

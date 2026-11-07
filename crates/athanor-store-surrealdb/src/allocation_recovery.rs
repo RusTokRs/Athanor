@@ -45,7 +45,7 @@ impl SurrealKnowledgeStore {
 
         let _: Option<Value> = self
             .db
-            .create(("snapshot", &snapshot_id))
+            .create(("snapshot", snapshot_id.as_str()))
             .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
