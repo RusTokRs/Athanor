@@ -41,6 +41,9 @@ use crate::documentation_generation_contract::{
 use crate::documentation_generation_contract::{
     DocumentationGenerationManifest, DocumentationGenerationRequest,
 };
+use crate::documentation_repository_plan::{
+    DOCUMENTATION_REPOSITORY_PLAN_REQUEST_SCHEMA_V1, DOCUMENTATION_REPOSITORY_PLAN_SCHEMA_V1,
+};
 
 #[path = "response_contract.rs"]
 mod response_contract;
@@ -170,6 +173,14 @@ pub const VERSIONED_JSON_CONTRACTS: &[JsonContractDescriptor] = &[
         DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1,
         "DocumentationGenerationManifest"
     ),
+    descriptor!(
+        DOCUMENTATION_REPOSITORY_PLAN_REQUEST_SCHEMA_V1,
+        "DocumentationRepositoryPlanRequest"
+    ),
+    descriptor!(
+        DOCUMENTATION_REPOSITORY_PLAN_SCHEMA_V1,
+        "DocumentationRepositoryPlan"
+    ),
     descriptor!(CONFIG_VALIDATE_SCHEMA_V1, "ConfigValidateReport"),
     descriptor!(CONFIG_DOCTOR_SCHEMA_V1, "ConfigDoctorReport"),
     descriptor!(DOCS_CHECK_SCHEMA_V1, "DocsCheckReport"),
@@ -270,7 +281,7 @@ mod tests {
     fn extended_registry_contains_application_daemon_and_adapter_owners() {
         validate_contract_registry(VERSIONED_JSON_CONTRACTS)
             .expect("extended JSON contract registry must remain valid");
-        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 64);
+        assert_eq!(VERSIONED_JSON_CONTRACTS.len(), 66);
         assert_eq!(
             DOCUMENTATION_COMPLETENESS_SCHEMA_V1,
             VersionedDocumentationCompletenessReport::SCHEMA
@@ -282,6 +293,14 @@ mod tests {
         assert_eq!(
             DOCUMENTATION_GENERATION_MANIFEST_SCHEMA_V1,
             DocumentationGenerationManifest::SCHEMA
+        );
+        assert_eq!(
+            DOCUMENTATION_REPOSITORY_PLAN_REQUEST_SCHEMA_V1,
+            crate::DocumentationRepositoryPlanRequest::SCHEMA
+        );
+        assert_eq!(
+            DOCUMENTATION_REPOSITORY_PLAN_SCHEMA_V1,
+            crate::DocumentationRepositoryPlan::SCHEMA
         );
         assert_eq!(API_SNAPSHOT_SCHEMA_V1, VersionedApiSnapshotReport::SCHEMA);
         assert_eq!(

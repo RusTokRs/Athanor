@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use athanor_core::{AffectedSubset, CanonicalSnapshot, InvalidationPolicy, InvalidationScope};
-use athanor_domain::{Entity, EntityId, Fact, Relation};
+use athanor_domain::{Entity, EntityId, EntityKind, Fact, Relation};
 use serde::Serialize;
 
 use crate::hash::stable_hash;
@@ -36,11 +36,29 @@ pub fn plan_invalidation(
     added_files: bool,
     removed_files: bool,
 ) -> InvalidationPlan {
+    plan_invalidation_with_changes(declarations, false, added_files, removed_files)
+}
+
+/// The indexing pipeline also knows whether existing files changed alongside
+/// additions or removals. All events in one batch must be respected; the public
+/// two-flag API retains its historical `on_change` fallback when neither flag
+/// is set.
+pub(crate) fn plan_invalidation_with_changes(
+    declarations: impl IntoIterator<Item = AdapterInvalidationDeclaration>,
+    changed_files: bool,
+    added_files: bool,
+    removed_files: bool,
+) -> InvalidationPlan {
     let mut scope = PlannedInvalidationScope::FileLocal;
     let mut global_adapters = Vec::new();
 
     for declaration in declarations {
-        let adapter_scope = scope_for(&declaration.policy, added_files, removed_files);
+        let adapter_scope = scope_for(
+            &declaration.policy,
+            changed_files,
+            added_files,
+            removed_files,
+        );
         match adapter_scope {
             InvalidationScope::AlwaysGlobal
             | InvalidationScope::GlobalOnAdd
@@ -69,11 +87,12 @@ pub fn plan_invalidation(
 /// Names the declarations a changed file still states identically.
 ///
 /// A file is re-extracted as a whole, but the declarations inside it usually did
-/// not move: a fingerprint of everything a linker or checker can read — identity,
-/// source span, aliases, ownership, and payload — says which extracted objects are
-/// still the ones the previous snapshot already resolved. Only the rest need to be
-/// reconsidered, so a file that gained a blank line no longer invalidates every
-/// declaration in it.
+/// not move: a fingerprint of declaration identity, source span, aliases,
+/// ownership, and payload identifies the extracted objects that can be reused.
+/// Attached facts are compared and re-extracted separately; a matching
+/// declaration does not certify its previous facts. A File is not a declaration:
+/// if its hash is unavailable, unchanged metadata cannot preserve facts (such
+/// as impl syntax) that disappeared from the re-extracted file.
 ///
 /// A declaration is reused only when the previous snapshot states it from one of
 /// the affected paths: an object that was never extracted from a changed file has
@@ -88,7 +107,7 @@ pub(crate) fn unchanged_declarations(
     };
     let mut previous_fingerprints = BTreeMap::<&str, u64>::new();
     for entity in &previous.entities {
-        if !entity_owned_by_any_path(entity, affected_paths) {
+        if entity.kind == EntityKind::File || !entity_owned_by_any_path(entity, affected_paths) {
             continue;
         }
         previous_fingerprints.insert(
@@ -102,14 +121,15 @@ pub(crate) fn unchanged_declarations(
     extracted
         .iter()
         .filter(|entity| {
-            previous_fingerprints.get(entity.stable_key.0.as_str())
-                == Some(&declaration_fingerprint(entity))
+            entity.kind != EntityKind::File
+                && previous_fingerprints.get(entity.stable_key.0.as_str())
+                    == Some(&declaration_fingerprint(entity))
         })
         .map(|entity| entity.id.clone())
         .collect()
 }
 
-/// Hashes everything a linker or checker can read from one declaration.
+/// Hashes the declaration fields a linker or checker can read (not its facts).
 ///
 /// `id` is left out because it is derived from the stable key, and `snapshot` is
 /// left out because it names the run rather than the object.
@@ -196,23 +216,39 @@ pub fn dependency_closure(
 
 fn scope_for(
     policy: &InvalidationPolicy,
+    changed_files: bool,
     added_files: bool,
     removed_files: bool,
 ) -> InvalidationScope {
-    if added_files {
-        return policy.on_add;
+    let mut scope = if changed_files || (!added_files && !removed_files) {
+        policy.on_change
+    } else {
+        InvalidationScope::FileLocal
+    };
+    if added_files && scope_rank(policy.on_add) > scope_rank(scope) {
+        scope = policy.on_add;
     }
-    if removed_files {
-        return policy.on_remove;
+    if removed_files && scope_rank(policy.on_remove) > scope_rank(scope) {
+        scope = policy.on_remove;
     }
-    policy.on_change
+    scope
+}
+
+fn scope_rank(scope: InvalidationScope) -> u8 {
+    match scope {
+        InvalidationScope::FileLocal => 0,
+        InvalidationScope::DependencyClosure => 1,
+        InvalidationScope::GlobalOnAdd
+        | InvalidationScope::GlobalOnRemove
+        | InvalidationScope::AlwaysGlobal => 2,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
         AdapterInvalidationDeclaration, PlannedInvalidationScope, dependency_closure,
-        plan_invalidation,
+        plan_invalidation, plan_invalidation_with_changes,
     };
     use std::collections::{BTreeSet, HashSet};
 
@@ -280,6 +316,53 @@ mod tests {
         let plan = plan_invalidation([declaration("checker:duplicates", policy)], true, false);
         assert_eq!(plan.scope, PlannedInvalidationScope::Global);
         assert_eq!(plan.global_adapters, vec!["checker:duplicates"]);
+    }
+
+    #[test]
+    fn simultaneous_add_and_remove_preserves_the_stronger_removal_policy() {
+        let policy = InvalidationPolicy {
+            on_change: InvalidationScope::FileLocal,
+            on_add: InvalidationScope::FileLocal,
+            on_remove: InvalidationScope::GlobalOnRemove,
+        };
+        let plan = plan_invalidation([declaration("checker:removed", policy)], true, true);
+        assert_eq!(plan.scope, PlannedInvalidationScope::Global);
+        assert!(plan.added_files && plan.removed_files);
+        assert_eq!(plan.global_adapters, vec!["checker:removed"]);
+    }
+
+    #[test]
+    fn simultaneous_add_and_edit_does_not_hide_change_invalidation() {
+        let policy = InvalidationPolicy {
+            on_change: InvalidationScope::DependencyClosure,
+            on_add: InvalidationScope::FileLocal,
+            on_remove: InvalidationScope::FileLocal,
+        };
+        let plan = plan_invalidation_with_changes(
+            [declaration("linker:edited", policy)],
+            true,
+            true,
+            false,
+        );
+        assert_eq!(plan.scope, PlannedInvalidationScope::DependencyClosure);
+        assert!(plan.global_adapters.is_empty());
+    }
+
+    #[test]
+    fn simultaneous_remove_and_edit_does_not_hide_global_change_policy() {
+        let policy = InvalidationPolicy {
+            on_change: InvalidationScope::AlwaysGlobal,
+            on_add: InvalidationScope::FileLocal,
+            on_remove: InvalidationScope::FileLocal,
+        };
+        let plan = plan_invalidation_with_changes(
+            [declaration("checker:edited", policy)],
+            true,
+            false,
+            true,
+        );
+        assert_eq!(plan.scope, PlannedInvalidationScope::Global);
+        assert_eq!(plan.global_adapters, vec!["checker:edited"]);
     }
 
     #[test]
@@ -365,6 +448,33 @@ mod tests {
             std::slice::from_ref(&extracted),
         );
         assert_eq!(reused, HashSet::from([extracted.id.clone()]));
+    }
+
+    #[test]
+    fn never_reuses_a_changed_files_identity_as_a_declaration() {
+        let mut file = symbol(
+            "ent_file",
+            "file://src/lib.rs",
+            "src/lib.rs",
+            None,
+            json!({ "content_hash": null, "has_text_content": true }),
+        );
+        file.kind = EntityKind::File;
+        let declaration = symbol(
+            "ent_record",
+            "symbol://rust:crate::Record",
+            "src/lib.rs",
+            Some(1),
+            json!({ "qualified_name": "crate::Record" }),
+        );
+        let extracted = vec![file.clone(), declaration.clone()];
+        let reused = unchanged_declarations(
+            Some(&snapshot_with(vec![file, declaration.clone()])),
+            &BTreeSet::from(["src/lib.rs".to_string()]),
+            &extracted,
+        );
+
+        assert_eq!(reused, HashSet::from([declaration.id]));
     }
 
     #[test]

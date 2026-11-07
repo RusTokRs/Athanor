@@ -16,13 +16,17 @@ anyhow.workspace = true
 async-trait.workspace = true
 athanor-core = { path = "../athanor-core" }
 athanor-domain = { path = "../athanor-domain" }
+athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 athanor-projector-support = { path = "../athanor-projector-support" }
+athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 serde_yaml_ng.workspace = true
 toml.workspace = true
 tracing.workspace = true
+unicase.workspace = true
+unicode-normalization.workspace = true
 tokio = { workspace = true, features = ["io-util", "net", "process", "signal", "sync", "time"] }
 futures = "0.3"
 notify-debouncer-mini.workspace = true
@@ -36,7 +40,6 @@ js-ts-precision = []
 [dev-dependencies]
 athanor-checker-api = { path = "../athanor-checker-api" }
 athanor-checker-markdown = { path = "../athanor-checker-markdown" }
-athanor-extractor-basic = { path = "../athanor-extractor-basic" }
 athanor-extractor-graphql = { path = "../athanor-extractor-graphql" }
 athanor-extractor-markdown = { path = "../athanor-extractor-markdown" }
 athanor-extractor-openapi = { path = "../athanor-extractor-openapi" }
@@ -48,5 +51,4 @@ athanor-projector-html = { path = "../athanor-projector-html" }
 athanor-projector-wiki = { path = "../athanor-projector-wiki" }
 athanor-search-tantivy = { path = "../athanor-search-tantivy" }
 athanor-source-fs = { path = "../athanor-source-fs" }
-athanor-store-jsonl = { path = "../athanor-store-jsonl" }
 tokio.workspace = true

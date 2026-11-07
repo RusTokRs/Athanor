@@ -24,6 +24,8 @@ JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134
 
 The existing coordinated `ath generate` command is unchanged. No model provider, daemon, or MCP integration is enabled; the separately scoped HTTP reader reuses the Markdown parser's HTML feature.
 
+DOCGEN-002 starts separately with a **read-only** exact-snapshot Cargo/package ownership inventory and file-qualified Rust syntax evidence; see [Repository documentation ownership](repository-documentation-ownership.md). The planner reports verified, conventional target-to-module File edges and a partial inventory of individually evidenced Rust syntax symbols (including verified inline scopes and same-File method owners), not a complete compiled or macro-expanded graph. It does not project symbol pages or publish into package `docs/`, and does not alter the execution-confirmed DOCGEN-001 status above.
+
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation
 ```

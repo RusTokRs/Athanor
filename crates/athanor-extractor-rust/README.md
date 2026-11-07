@@ -16,7 +16,10 @@ The crate exposes two extractor types. `RustExtractor` owns framework-neutral Ru
   A type alias payload carries `aliased_type` when the right-hand side is a bare named type:
   `type Client = Store` records `Store`. A generic, a tuple, a reference, and a primitive record
   nothing.
-- `FactKind::SymbolDefined` from every emitted symbol to its canonical file entity
+- `FactKind::SymbolDefined` from every emitted symbol to its canonical file entity. The entity and matching fact carry `rust_presence_unverified`: `true` for unresolved `cfg`/`cfg_attr`, test-harness attributes, unknown potentially procedural item/inline-module/impl/trait attributes, or methods without a supported syntax path; alternatives with multiple definition spans are also unverified. A `false` flag says only that the parsed item is unconditionally present as syntax, **not** that its target compiles or that macro expansion is complete.
+- `FactKind::Other("rust_inherent_method")` for a method in an unqualified, single-segment inherent impl when its struct/enum/union is independently parsed in the same File. Its subject is the method, object the local type, and two evidence spans cover the method signature and enclosing impl. Qualified/imported self types, type aliases and trait impl methods are not claimed as local owners.
+- `FactKind::Other("rust_module_declaration")` for each parsed `mod` declaration, including source File, ordinal, inline ancestry, conditional/custom-path flags and evidence. The file-root module records the declaration count and whether macro/attribute syntax makes reachability opaque; these facts do not identify the target or compile a `cfg` configuration.
+- `FactKind::SymbolDefined` with `symbol_kind: "trait_impl"` for implementation syntax. It records `impl_module`, `local_identifiers` and conditional presence; only unqualified, non-generic, same-File/module type/trait declarations can supply file-local linker bridges. Qualified paths and procedural attributes remain unlinked syntax facts.
 - `supertraits` path arrays and containing-module imports on trait declaration payloads for linker resolution
 - `calls` objects on declarations: `{callee, name, receiver, kind, line}`, where a method call records the receiver expression with spaces around `.` and wrapping parentheses collapsed so `self.reader.write()` and `(&mut self.reader).write()` record as `self.reader` / `&mut self.reader`, `svc.create().write()` records receiver `svc.create()`, `create_repo().get().write()` records receiver `create_repo().get()`, `Store::new().write()` records receiver `Store::new()`, `Store::new().get().write()` records receiver `Store::new().get()`, `crate::create_repo().write()` records receiver `crate::create_repo()`, `crate::create_repo().get().write()` records receiver `crate::create_repo().get()`, `create_repo()?.write()` records receiver `create_repo()?`, `create_repo()?.get().write()` records receiver `create_repo()?.get()`, `create_repo().unwrap().write()` records receiver `create_repo().unwrap()`, `create_repo().unwrap().get().write()` records receiver `create_repo().unwrap().get()`, and a bare path call keeps `receiver: null`
 - A `return_type` on function, method, and trait-method payloads: the bare named type the signature returns, so `fn create_repo() -> Store` types `create_repo().write()`. On an inherent impl, `-> Self` is that impl type, so `impl Store { fn new() -> Self }` types `Store::new().write()`. `Box`/`Rc`/`Arc` and a reference unwrap to the type they name. `-> Result<Store, E>` and `-> Option<Store>` record `Store` with `try_yield: true`, so only a `?`, `.unwrap()`, or `.expect(...)` on that hop may take it. A type parameter that names one trait bound (`T: Reader` or `where T: Reader`) records that trait with `return_kind: impl_trait`, and so do `-> impl Reader` and `-> Box<dyn Reader>` (`trait_object`). Unconstrained `T`, extra bounds, a tuple, a missing `->`, and `Self` outside an inherent impl record nothing.
@@ -53,13 +56,13 @@ Supported method constructors are `get`, `post`, `put`, `delete`, `patch`, `head
 ## Stable Keys
 
 ```text
-symbol://rust:auth_service::auth::login
-symbol://rust:auth_service::auth::Session
-symbol://rust:auth_service::auth::Session::refresh
+symbol://rust:file:31:crates/auth-service/src/auth.rs:auth_service::auth::login
+symbol://rust:file:31:crates/auth-service/src/auth.rs:auth_service::auth::Session
+symbol://rust:file:31:crates/auth-service/src/auth.rs:auth_service::auth::Session::refresh
 axum-route://src/http/routes.rs#GET:/users:list_users
 ```
 
-The Rust module prefix is derived from the project-relative file path. A root `src/lib.rs` maps to `crate`; `crates/auth-service/src/auth.rs` maps to `auth_service::auth`. Hyphens in workspace member directory names are normalized to Rust underscores.
+The Rust key includes the UTF-8 byte length and exact project-relative File path before the syntactic qualified name. A root `src/lib.rs` maps to `crate`; `crates/auth-service/src/auth.rs` maps to `auth_service::auth`. Hyphens in workspace member directory names are normalized to Rust underscores. That syntactic prefix alone is not proof of Cargo package or module reachability. The new linker resolves such symbols only within one File until target-scoped cross-file proof is available.
 
 Axum route keys are source-backed and include the HTTP method, literal route path, and handler path. Windows source separators are normalized for stable-key/payload identity while evidence retains the source-provider path.
 
@@ -72,7 +75,7 @@ None. The extractors do not run commands, use the network, or modify project fil
 `RustExtractor`:
 
 - Macro-generated declarations are not expanded.
-- Out-of-line module declarations are emitted as modules but resolved by their own source files rather than linked in this adapter.
+- Out-of-line module declarations are emitted as syntax facts, but target-reachable source Files must be proven by the separate exact-snapshot package planner; the extractor and linker do not infer cross-file module edges.
 - A receiver type is recorded only when the source states one usable name: a generic argument, a
   trait object with extra bounds, a primitive, `Self`, and an unannotated local that is not a
   factory call are skipped. An unannotated `let store = create_repo()` or
@@ -86,7 +89,7 @@ None. The extractors do not run commands, use the network, or modify project fil
 - Trait supertraits are linked only when they resolve to an in-snapshot trait declaration; external
   traits and ambiguous names remain unresolved.
 - Rust syntax errors fail extraction for the affected file.
-- Alternative definitions with the same qualified name, such as platform-specific `cfg` functions, are coalesced and retain evidence for every definition.
+- Alternative definitions with the same qualified name **in one source file**, such as platform-specific `cfg` functions, are coalesced and retain evidence for every definition; identical names in different Files have distinct identities.
 
 `AxumExtractor` deliberately does not infer:
 

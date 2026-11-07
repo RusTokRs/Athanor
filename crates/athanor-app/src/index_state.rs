@@ -10,9 +10,18 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use tracing::warn;
 
 #[cfg(not(feature = "js-ts-precision"))]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v96";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v97";
 #[cfg(feature = "js-ts-precision")]
-pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v96-js-ts-precision-v1";
+pub const INDEX_STATE_SCHEMA: &str = "athanor.index_state.v97-js-ts-precision-v1";
+
+// v96 artifacts remain readable as committed historical generations, but
+// IndexStateStore::load deliberately does not reuse them for incremental
+// indexing: Cargo ownership evidence and file-qualified Rust identities/facts
+// require re-extraction of unchanged manifests and source files.
+pub(crate) const LEGACY_INDEX_STATE_SCHEMAS: &[&str] = &[
+    "athanor.index_state.v96",
+    "athanor.index_state.v96-js-ts-precision-v1",
+];
 
 /// Incremental index state.
 ///
@@ -148,7 +157,10 @@ impl IndexState {
         for source in current {
             match self.files.get(&source.path) {
                 Some(previous)
-                    if previous.content_hash == source.content_hash
+                    // An absent (or empty) hash proves nothing about content:
+                    // providers may supply new text at the same path and hint.
+                    if source.content_hash.as_ref().is_some_and(|hash| !hash.is_empty())
+                        && previous.content_hash == source.content_hash
                         && previous.language_hint == source.language_hint =>
                 {
                     affected.unchanged.insert(source.path.clone());
@@ -403,6 +415,49 @@ mod tests {
     }
 
     #[test]
+    fn missing_or_empty_hash_never_proves_an_unchanged_source() {
+        let missing = SourceFile {
+            path: "src/lib.rs".to_string(),
+            language_hint: Some("rust".to_string()),
+            content_hash: None,
+            content: Some("impl Reader for Record {}".to_string()),
+        };
+        let empty = SourceFile {
+            path: "src/empty.rs".to_string(),
+            language_hint: Some("rust".to_string()),
+            content_hash: Some(String::new()),
+            content: Some("old".to_string()),
+        };
+        let hashed = SourceFile {
+            path: "src/hashed.rs".to_string(),
+            language_hint: Some("rust".to_string()),
+            content_hash: Some("fnv1a64:1234".to_string()),
+            content: Some("unchanged".to_string()),
+        };
+        let previous = IndexState::from_sources(
+            "snap_previous",
+            &[missing.clone(), empty.clone(), hashed.clone()],
+        );
+        let affected = previous.affected_files(&[
+            SourceFile {
+                content: Some("// impl removed".to_string()),
+                ..missing
+            },
+            empty,
+            hashed,
+        ]);
+
+        assert_eq!(
+            affected.changed,
+            BTreeSet::from(["src/lib.rs".to_string(), "src/empty.rs".to_string()])
+        );
+        assert_eq!(
+            affected.unchanged,
+            BTreeSet::from(["src/hashed.rs".to_string()])
+        );
+    }
+
+    #[test]
     fn incompatible_state_schema_forces_a_full_rebuild_before_current_wire_validation() {
         let root = std::env::temp_dir().join(format!(
             "athanor-index-state-schema-test-{}",
@@ -446,6 +501,8 @@ mod tests {
             "athanor.index_state.v61-js-ts-precision-v1",
             "athanor.index_state.v95",
             "athanor.index_state.v95-js-ts-precision-v1",
+            "athanor.index_state.v96",
+            "athanor.index_state.v96-js-ts-precision-v1",
         ]
         .into_iter()
         .enumerate()

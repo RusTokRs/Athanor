@@ -437,7 +437,7 @@ fn state_identity_if_present(
     )
     .with_context(|| format!("failed to parse recovery {label} {}", path.display()))?;
     let schema_policy = match policy {
-        StateSchemaPolicy::ExactCurrent => SchemaPolicy::Exact,
+        StateSchemaPolicy::ExactCurrent => SchemaPolicy::CurrentOrPreviousIndexState,
         StateSchemaPolicy::VersionedHistorical => SchemaPolicy::Versioned("athanor.index_state.v"),
     };
     artifact_identity(
@@ -453,6 +453,7 @@ fn state_identity_if_present(
 #[derive(Debug, Clone, Copy)]
 enum SchemaPolicy {
     Exact,
+    CurrentOrPreviousIndexState,
     Versioned(&'static str),
 }
 
@@ -474,6 +475,10 @@ fn artifact_identity(
         })?;
     let schema_valid = match policy {
         SchemaPolicy::Exact => schema == expected_schema,
+        SchemaPolicy::CurrentOrPreviousIndexState => {
+            schema == expected_schema
+                || crate::index_state::LEGACY_INDEX_STATE_SCHEMAS.contains(&schema)
+        }
         SchemaPolicy::Versioned(prefix) => is_versioned_schema(schema, prefix),
     };
     if !schema_valid {
@@ -546,9 +551,7 @@ fn require_expected_identity(
     label: &str,
 ) -> Result<()> {
     let actual = actual.ok_or_else(|| {
-        anyhow::anyhow!(
-            "publication recovery {label} is missing for snapshot {expected_snapshot}"
-        )
+        anyhow::anyhow!("publication recovery {label} is missing for snapshot {expected_snapshot}")
     })?;
     require_expected_identity_if_present(
         Some(actual),

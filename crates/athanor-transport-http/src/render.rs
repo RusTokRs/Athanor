@@ -108,7 +108,7 @@ pub(super) fn index_page(
         "<section><h2>Explore one question</h2>\
          <form method=\"get\" action=\"/explore\" class=\"form\">\
          <label>Query <input type=\"search\" name=\"q\" placeholder=\"how does the index pipeline publish\"></label>\
-         <label>Or exact target <input type=\"text\" name=\"target\" placeholder=\"src/lib.rs or symbol://rust:crate::store\"></label>\
+         <label>Or exact target <input type=\"text\" name=\"target\" placeholder=\"src/lib.rs or an exact symbol key\"></label>\
          <label>Depth <input type=\"number\" name=\"depth\" min=\"1\" max=\"4\" value=\"{explore_depth}\"></label>\
          <button type=\"submit\">Explore</button></form>\
          <p class=\"hint\">One bounded answer with citations, source excerpts, relation chains, and blast radius.</p></section>",

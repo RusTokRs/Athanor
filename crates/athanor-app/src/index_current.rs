@@ -145,6 +145,7 @@ impl IndexCurrent {
             &self.snapshot,
             &self.generation,
             "read-model manifest",
+            false,
         )?;
 
         let state = self.index_state_path(root);
@@ -161,6 +162,7 @@ impl IndexCurrent {
             &self.snapshot,
             &self.generation,
             "index state",
+            true,
         )?;
 
         if self.is_checksum_bound() {
@@ -265,6 +267,7 @@ fn validate_artifact_identity(
     expected_snapshot: &SnapshotId,
     expected_generation: &GenerationId,
     label: &str,
+    allow_historical_index_state: bool,
 ) -> Result<()> {
     let value: Value = serde_json::from_slice(
         &fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))?,
@@ -274,7 +277,10 @@ fn validate_artifact_identity(
         .get("schema")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("{label} {} has no schema", path.display()))?;
-    if schema != expected_schema {
+    if schema != expected_schema
+        && !(allow_historical_index_state
+            && crate::index_state::LEGACY_INDEX_STATE_SCHEMAS.contains(&schema))
+    {
         bail!(
             "{label} {} has schema `{schema}`, expected `{expected_schema}`",
             path.display()
@@ -309,6 +315,54 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    #[test]
+    fn historical_index_state_is_readable_but_never_mistaken_for_current_wire() {
+        let root = std::env::temp_dir().join(format!(
+            "athanor-index-current-v96-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join("state.json");
+        let snapshot = SnapshotId("snap_old".to_string());
+        let generation = GenerationId::for_snapshot(&snapshot);
+        fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "schema": "athanor.index_state.v96", "snapshot": "snap_old",
+                "generation": generation.as_str(), "files": {},
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            validate_artifact_identity(
+                &path,
+                crate::index_state::INDEX_STATE_SCHEMA,
+                &snapshot,
+                &generation,
+                "index state",
+                true
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_artifact_identity(
+                &path,
+                crate::index_state::INDEX_STATE_SCHEMA,
+                &snapshot,
+                &generation,
+                "index state",
+                false
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn pointer_paths_are_deterministic_and_generation_scoped() {

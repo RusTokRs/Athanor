@@ -2,9 +2,8 @@
 id: doc://docs/adapters/extractor-rust.md
 kind: module_documentation
 language: en
-last_verified_snapshot: snap_jsonl_00000272
 source_language: en
-status: verified
+status: draft
 ---
 # Rust Extractor
 
@@ -23,7 +22,7 @@ The same crate now also exposes a separate bounded `AxumExtractor`, registered i
 see [Axum Route Extractor](extractor-axum.md). Its source presence is not execution evidence for the
 previously verified framework-neutral Rust extractor surface.
 
-Stable keys use the `symbol://rust:` namespace and a collision-resistant crate/module prefix derived from the project-relative source path. Workspace member directory names become crate names with hyphens normalized to underscores. Parser spans provide line evidence; every entity and fact is owned by the source file for incremental replacement.
+The v97 source-prepared Rust identity is file-qualified: `symbol://rust:file:<UTF-8-byte-length>:<source-path>:<qualified-name>`. For example, `src/store.rs` maps `crate::store::Store` to `symbol://rust:file:12:src/store.rs:crate::store::Store`. The length prefix prevents paths containing separators from colliding with qualified names. Workspace member directory names still become syntactic crate prefixes with hyphens normalized to underscores, but that prefix is **not** Cargo target ownership. Every Rust symbol has matching `source_file`, version and ownership; parser spans provide line evidence. The linker resolves new Rust identities only within the same File until a verified target/module graph can authorize cross-file links. These changes have not been build- or test-verified in this slice. The entity and its `SymbolDefined` fact now also agree on `rust_presence_unverified`: items or enclosing inline modules/impls/traits beneath `cfg`, test-harness attributes or an unknown procedural attribute are not projected as unconditional package symbols. Trait methods can be projected only with a proven same-File trait owner; an inherent method additionally needs a separate `rust_inherent_method` fact from a single-segment self type and a proven local struct/enum/union. Qualified self types, type aliases and trait implementation methods remain outside the partial inventory. The exact-snapshot planner checks this flag, File, fact ID, source span, owner and uniquely verified inline parent chain, but never equates parsed syntax with a compiled target.
 
 Declarations record the evidence a relation linker needs to resolve a call. Functions, methods, and
 trait methods carry a bounded `calls` array of `{callee, name, receiver, kind, line}`: a bare path
@@ -79,15 +78,19 @@ functions, so a `dyn Trait` receiver has a declaration to resolve to.
 Every `impl Trait for Type` block is recorded as a `symbol_defined` fact with
 `symbol_kind: "trait_impl"`, the implementing type name, the trait name, and the trait path as
 written. Marker implementations without methods are recorded too, because the fact — not an
-implementation-method symbol — is the anchor; the Rust linker turns these facts into `Implements`
-bridges. Resolvable trait supertraits are linked separately as `Extends` relations.
+implementation-method symbol — is the anchor; the Rust linker turns unconditional, verified
+same-file, same-inline-module facts with unqualified local self/trait paths into `Implements` bridges. The fact records `impl_module` and `local_identifiers`; qualified/imported names and a generic self type parameter are not guessed into local declarations, and aliases do not supply local type endpoints. Crate/module/impl `cfg` and potentially procedural attributes leave facts as syntax only, without implementation or dynamic-dispatch bridges; conditional type/trait declarations cannot supply bridge endpoints. Resolvable
+same-file trait supertraits are linked separately as `Extends` relations. Parsed `mod` declarations
+also emit `Other("rust_module_declaration")` facts with source evidence, declaration ordinal,
+inline ancestry and conditional/custom-path flags. The root module carries the declaration count
+and an opaque-macro/attribute marker. These facts are not a compiled module graph.
 
 Environment variables are detected from common Rust calls such as `std::env::var`,
 `std::env::var_os`, and `option_env!`, then emitted as `EntityKind::EnvVar` with `env://<NAME>`
 stable keys. `EnvDocsChecker` can later report undocumented variables through `ath check env`.
 
 The base adapter runs in-process, has no network access, and has no side effects. Alternative `cfg`
-definitions with the same qualified name are coalesced with multiple evidence spans. `RustExtractor`
+definitions with the same qualified name *in one File* are coalesced with multiple evidence spans. `RustExtractor`
 does not expand macros, link imports/calls, or infer framework routes; trait implementation facts are
 not expanded into synthetic implementation methods.
 

@@ -479,6 +479,8 @@ dependencies = [
  "tokio",
  "toml",
  "tracing",
+ "unicase",
+ "unicode-normalization",
 ]
 
 [[package]]

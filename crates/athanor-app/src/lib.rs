@@ -80,6 +80,8 @@ pub mod documentation_operations_operation;
 #[path = "documentation_operations_profile_v1.rs"]
 pub mod documentation_operations_profile;
 pub mod documentation_operations_publication;
+pub mod documentation_repository_operation;
+pub mod documentation_repository_plan;
 pub mod explain;
 pub mod explore;
 #[cfg(test)]
@@ -260,6 +262,8 @@ pub use documentation_operations_inspection::*;
 pub use documentation_operations_operation::*;
 pub use documentation_operations_profile::*;
 pub use documentation_operations_publication::*;
+pub use documentation_repository_operation::*;
+pub use documentation_repository_plan::*;
 pub use explain::*;
 pub use explore::*;
 pub use generation::*;

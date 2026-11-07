@@ -294,6 +294,10 @@ struct CargoManifest {
     package: Option<CargoPackage>,
     workspace: Option<CargoWorkspace>,
     dependencies: Vec<CargoDependency>,
+    // Only the target/membership fields needed for snapshot-only ownership
+    // planning. Never persist the entire manifest (which can contain secrets).
+    target_evidence: serde_json::Value,
+    membership_evidence: serde_json::Value,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -589,6 +593,7 @@ fn extract_cargo_manifest(
                 "name": package.name,
                 "version": package.version,
                 "edition": package.edition,
+                "target_evidence": manifest.target_evidence,
             }),
             json!({
                 "path": input.source.path,
@@ -601,7 +606,9 @@ fn extract_cargo_manifest(
     }
 
     if let Some(workspace) = manifest.workspace {
-        let stable_key = StableKey(format!("package://{}#workspace", input.source.path));
+        // Distinct from a package legitimately named `workspace` in the same
+        // manifest; otherwise canonical coalescing loses one of the owners.
+        let stable_key = StableKey(format!("cargo-workspace://{}", input.source.path));
         push_package_entity_and_fact(
             extractor,
             input,
@@ -613,6 +620,7 @@ fn extract_cargo_manifest(
             json!({
                 "package_kind": "cargo_workspace",
                 "members": workspace.members,
+                "membership_evidence": manifest.membership_evidence,
             }),
             json!({
                 "path": input.source.path,
@@ -1695,6 +1703,16 @@ fn dependency_entity_id(stable_key: &StableKey) -> EntityId {
 
 fn parse_cargo_manifest(content: &str) -> Option<CargoManifest> {
     let root = toml::from_str::<toml::Table>(content).ok()?;
+    let target_evidence = root
+        .get("package")
+        .and_then(toml::Value::as_table)
+        .map(|package| cargo_target_evidence_from_manifest(&root, package))
+        .unwrap_or(serde_json::Value::Null);
+    let membership_evidence = root
+        .get("workspace")
+        .and_then(toml::Value::as_table)
+        .map(cargo_membership_evidence)
+        .unwrap_or(serde_json::Value::Null);
     let package = root
         .get("package")
         .and_then(toml::Value::as_table)
@@ -1741,7 +1759,133 @@ fn parse_cargo_manifest(content: &str) -> Option<CargoManifest> {
         package,
         workspace,
         dependencies,
+        target_evidence,
+        membership_evidence,
     })
+}
+
+/// Retain only target fields needed to reproduce Cargo's declared/default roots
+/// from the same snapshot as the package entity. Do not persist arbitrary TOML
+/// metadata or collapse invalid values into an apparently absent setting.
+fn cargo_target_evidence(package: &toml::Table) -> serde_json::Value {
+    // The root table is supplied by the caller below; this function only
+    // supplies package settings. See cargo_target_evidence_from_manifest.
+    json!({
+        "version": 1,
+        "autolib": cargo_optional_bool(package.get("autolib")),
+        "autobins": cargo_optional_bool(package.get("autobins")),
+        "autoexamples": cargo_optional_bool(package.get("autoexamples")),
+        "autotests": cargo_optional_bool(package.get("autotests")),
+        "autobenches": cargo_optional_bool(package.get("autobenches")),
+        "workspace": cargo_optional_text(package.get("workspace"), 512),
+        "edition_inherited": cargo_edition_inherited(package.get("edition")),
+    })
+}
+
+fn cargo_target_evidence_from_manifest(
+    root: &toml::Table,
+    package: &toml::Table,
+) -> serde_json::Value {
+    let mut evidence = cargo_target_evidence(package);
+    evidence["lib"] = root
+        .get("lib")
+        .map(cargo_target_table)
+        .unwrap_or(serde_json::Value::Null);
+    for (source, name) in [
+        ("bin", "bins"),
+        ("example", "examples"),
+        ("test", "tests"),
+        ("bench", "benches"),
+    ] {
+        evidence[name] = cargo_target_array(root.get(source));
+    }
+    evidence
+}
+
+fn cargo_membership_evidence(workspace: &toml::Table) -> serde_json::Value {
+    json!({
+        "version": 1,
+        "members": cargo_string_array(workspace.get("members")),
+        "exclude": cargo_string_array(workspace.get("exclude")),
+        "edition": cargo_workspace_edition(workspace.get("package")),
+    })
+}
+
+fn cargo_workspace_edition(value: Option<&toml::Value>) -> serde_json::Value {
+    match value {
+        None => serde_json::Value::Null,
+        Some(value) => value.as_table().map_or_else(
+            || json!({"invalid": true}),
+            |table| cargo_optional_text(table.get("edition"), 16),
+        ),
+    }
+}
+
+fn cargo_edition_inherited(value: Option<&toml::Value>) -> serde_json::Value {
+    match value {
+        None | Some(toml::Value::String(_)) => json!(false),
+        Some(toml::Value::Table(table))
+            if table.len() == 1
+                && table.get("workspace").and_then(toml::Value::as_bool) == Some(true) =>
+        {
+            json!(true)
+        }
+        _ => json!({"invalid": true}),
+    }
+}
+
+fn cargo_target_table(value: &toml::Value) -> serde_json::Value {
+    let Some(table) = value.as_table() else {
+        return json!({"invalid": true});
+    };
+    json!({
+        "name": cargo_optional_text(table.get("name"), 128),
+        "path": cargo_optional_text(table.get("path"), 1024),
+    })
+}
+
+fn cargo_target_array(value: Option<&toml::Value>) -> serde_json::Value {
+    match value {
+        None => json!([]),
+        Some(value) => value
+            .as_array()
+            .map(|entries| entries.iter().map(cargo_target_table).collect::<Vec<_>>())
+            .map_or_else(|| json!([{"invalid": true}]), |entries| json!(entries)),
+    }
+}
+
+fn cargo_string_array(value: Option<&toml::Value>) -> serde_json::Value {
+    match value {
+        None => json!([]),
+        Some(value) => value
+            .as_array()
+            .map(|entries| {
+                entries
+                    .iter()
+                    .map(|entry| cargo_optional_text(Some(entry), 1024))
+                    .collect::<Vec<_>>()
+            })
+            .map_or_else(|| json!([{"invalid": true}]), |entries| json!(entries)),
+    }
+}
+
+fn cargo_optional_bool(value: Option<&toml::Value>) -> serde_json::Value {
+    match value {
+        None => serde_json::Value::Null,
+        Some(value) => value
+            .as_bool()
+            .map_or_else(|| json!({"invalid": true}), |value| json!(value)),
+    }
+}
+
+fn cargo_optional_text(value: Option<&toml::Value>, max_bytes: usize) -> serde_json::Value {
+    match value {
+        None => serde_json::Value::Null,
+        Some(value) => value
+            .as_str()
+            .filter(|value| value.len() <= max_bytes)
+            .map_or_else(|| json!({"invalid": true}), |value| json!(value)),
+    }
 }
 
 fn collect_cargo_dependency_sections(
@@ -3032,6 +3176,52 @@ mod tests {
         );
     }
 
+    #[test]
+    fn cargo_target_evidence_is_versioned_and_restricted_to_ownership_fields() {
+        let manifest = parse_cargo_manifest(
+            "[package]\nname = \"service\"\nautobins = false\n\n[package.metadata]\nprivate_token = \"must-not-leak\"\n\n[lib]\npath = \"lib/core.rs\"\n\n[[bin]]\nname = \"server\"\npath = \"tools/server.rs\"\n\n[workspace]\nmembers = [\"crates/ui\"]\nexclude = [\"crates/old\"]\n"
+        ).expect("parse Cargo manifest");
+        assert_eq!(manifest.target_evidence["version"], json!(1));
+        assert_eq!(manifest.target_evidence["autobins"], json!(false));
+        assert_eq!(
+            manifest.target_evidence["lib"]["path"],
+            json!("lib/core.rs")
+        );
+        assert_eq!(manifest.target_evidence["bins"][0]["name"], json!("server"));
+        assert_eq!(
+            manifest.membership_evidence["members"],
+            json!(["crates/ui"])
+        );
+        assert_eq!(
+            manifest.membership_evidence["exclude"],
+            json!(["crates/old"])
+        );
+        assert_eq!(manifest.target_evidence["edition_inherited"], json!(false));
+        let inherited = parse_cargo_manifest(
+            "[package]\nname = \"child\"\nedition.workspace = true\n\n[workspace]\n\n[workspace.package]\nedition = \"2024\"\n"
+        ).expect("inherited edition manifest");
+        assert_eq!(inherited.target_evidence["edition_inherited"], json!(true));
+        assert_eq!(inherited.membership_evidence["edition"], json!("2024"));
+        assert!(
+            !manifest
+                .target_evidence
+                .to_string()
+                .contains("must-not-leak")
+        );
+        assert!(
+            !manifest
+                .membership_evidence
+                .to_string()
+                .contains("must-not-leak")
+        );
+        let malformed = parse_cargo_manifest("[package]\nname = \"bad\"\nautobins = \"no\"\n")
+            .expect("TOML is syntactically valid");
+        assert_eq!(
+            malformed.target_evidence["autobins"],
+            json!({"invalid": true})
+        );
+    }
+
     #[tokio::test]
     async fn extracts_cargo_manifest_packages_and_dependencies() {
         let output = OperationsExtractor
@@ -3094,6 +3284,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cargo_package_named_workspace_keeps_separate_workspace_identity() {
+        let output = OperationsExtractor.extract(ExtractInput {
+            repo: RepoId("repo-cargo-dual".to_string()),
+            snapshot: SnapshotId("snap-cargo-dual".to_string()),
+            source: SourceFile {
+                path: "Cargo.toml".to_string(),
+                language_hint: Some("toml".to_string()),
+                content_hash: None,
+                content: Some("[package]\nname = \"workspace\"\nversion = \"0.1.0\"\n\n[workspace]\nmembers = [\"crates/member\"]\n".to_string()),
+            },
+        }).await.expect("extract dual manifest");
+        let owners = output
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == EntityKind::Package)
+            .map(|entity| entity.stable_key.0.as_str())
+            .collect::<Vec<_>>();
+        assert!(owners.contains(&"package://Cargo.toml#workspace"));
+        assert!(owners.contains(&"cargo-workspace://Cargo.toml"));
+    }
+
+    #[tokio::test]
     async fn extracts_cargo_workspace_manifest() {
         let output = OperationsExtractor
             .extract(ExtractInput {
@@ -3114,7 +3326,7 @@ mod tests {
 
         assert!(output.entities.iter().any(|entity| {
             entity.kind == EntityKind::Package
-                && entity.stable_key.0 == "package://Cargo.toml#workspace"
+                && entity.stable_key.0 == "cargo-workspace://Cargo.toml"
                 && entity.payload["members"] == json!(["crates/example"])
         }));
         assert!(output.entities.iter().any(|entity| {

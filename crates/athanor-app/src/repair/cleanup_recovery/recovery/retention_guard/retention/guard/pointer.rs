@@ -322,7 +322,11 @@ fn inspect_identity(
             return;
         }
     };
-    let matches = value.get("schema").and_then(Value::as_str) == Some(expected_schema)
+    let schema = value.get("schema").and_then(Value::as_str);
+    let known_index_state = expected_schema == crate::index_state::INDEX_STATE_SCHEMA
+        && schema
+            .is_some_and(|schema| crate::index_state::LEGACY_INDEX_STATE_SCHEMAS.contains(&schema));
+    let matches = (schema == Some(expected_schema) || known_index_state)
         && value.get("snapshot").and_then(Value::as_str) == Some(expected_snapshot)
         && value.get("generation").and_then(Value::as_str) == Some(expected_generation);
     if !matches {

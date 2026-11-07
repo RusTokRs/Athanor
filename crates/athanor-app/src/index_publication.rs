@@ -235,6 +235,7 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         &journal.snapshot,
         &journal.generation,
         "legacy read-model manifest",
+        false,
     )?;
     validate_artifact_identity(
         &source_state,
@@ -242,6 +243,7 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         &journal.snapshot,
         &journal.generation,
         "legacy index state",
+        true,
     )?;
 
     let target_read_model = migration_current.read_model_path(root);
@@ -255,6 +257,7 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         &journal.snapshot,
         &journal.generation,
         "immutable read-model manifest",
+        false,
     )?;
     validate_artifact_identity(
         &target_state,
@@ -262,6 +265,7 @@ fn publish_current_generation(root: &Path, journal: &IndexCurrentPublicationJour
         &journal.snapshot,
         &journal.generation,
         "immutable index state",
+        true,
     )?;
     crate::artifact_checksum::validate_read_model_matches(&source_read_model, &target_read_model)?;
     crate::artifact_checksum::validate_file_matches(&source_state, &target_state, "index state")?;
@@ -418,6 +422,7 @@ fn validate_artifact_identity(
     expected_snapshot: &SnapshotId,
     expected_generation: &GenerationId,
     label: &str,
+    allow_historical_index_state: bool,
 ) -> Result<()> {
     let value: Value = serde_json::from_slice(
         &fs::read(path).with_context(|| format!("failed to read {label} {}", path.display()))?,
@@ -427,7 +432,10 @@ fn validate_artifact_identity(
         .get("schema")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("{label} {} has no schema", path.display()))?;
-    if schema != expected_schema {
+    if schema != expected_schema
+        && !(allow_historical_index_state
+            && crate::index_state::LEGACY_INDEX_STATE_SCHEMAS.contains(&schema))
+    {
         bail!(
             "{label} {} has schema `{schema}`, expected `{expected_schema}`",
             path.display()
