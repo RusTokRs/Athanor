@@ -1100,10 +1100,3 @@ pub(super) fn nearest_package<'a>(
         .filter(|package| inside(path, package_root(&package.manifest)))
         .max_by_key(|package| package_root(&package.manifest).len())
 }
-
-pub(super) fn nearest_member<'a>(
-    path: &str,
-    packages: &'a [DocumentationPackagePlan],
-) -> Option<&'a DocumentationPackagePlan> {
-    nearest_package(path, packages).filter(|owner| owner.membership != "unresolved")
-}
