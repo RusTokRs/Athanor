@@ -115,6 +115,7 @@ impl SurrealKnowledgeStore {
             .await
             .map_err(|error| CoreError::Adapter(format!("failed to use NS/DB: {error}")))?;
 
+        define_store_tables(&db).await?;
         initialize_snapshot_counter(&db).await?;
 
         Ok(Self {
@@ -289,6 +290,25 @@ fn validate_committed_generation(record: &SnapshotRecord, snapshot: &SnapshotId)
             snapshot.0
         )));
     }
+    Ok(())
+}
+
+async fn define_store_tables(db: &Surreal<Any>) -> CoreResult<()> {
+    // SurrealDB 4 does not implicitly create missing tables for transactional
+    // INSERT. Define all canonical tables before the counter or any batch write;
+    // IF NOT EXISTS preserves an existing schema and is safe for repeated connects.
+    db.query(
+        "DEFINE TABLE IF NOT EXISTS meta SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS snapshot SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS entity SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS fact SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS relation SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS diagnostic SCHEMALESS;",
+    )
+    .await
+    .map_err(|error| CoreError::Adapter(format!("failed to define store tables: {error}")))?
+    .check()
+    .map_err(|error| CoreError::Adapter(format!("store table initialization failed: {error}")))?;
     Ok(())
 }
 

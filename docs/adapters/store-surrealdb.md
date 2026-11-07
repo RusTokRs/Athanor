@@ -46,6 +46,7 @@ SurrealDB maps Athanor entities to structured document tables:
 - Does not run external commands.
 - Uses the SurrealDB 4.0 SDK for offline database operations (`mem://` or `surrealkv://path`).
 - With the opt-in `remote` feature, connects via WebSocket to a compatible SurrealDB 4 server. The Store Conformance CI runs against `surrealdb/surrealdb:v4.0.0`.
+- On connect, defines the six required tables with `DEFINE TABLE IF NOT EXISTS` so transaction inserts cannot fail on a fresh v4 database. Existing schemas are preserved; remote credentials must allow schema initialization.
 - Before switching an existing SurrealDB 2 persistent store to 4, back up its data and validate a supported migration; do not assume the on-disk format is directly compatible.
 - Snapshot and batch records use typed database record IDs. Reads restore the original Athanor IDs before returning canonical domain objects, preserving the JSONL contract.
 

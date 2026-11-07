@@ -32,6 +32,7 @@ Persists:
 - Does not run external commands.
 - Uses the SurrealDB 4.0 SDK for local memory (`mem://`) and persistent local file storage (`surrealkv://path`).
 - The optional `remote` feature supports WebSocket connections to a compatible SurrealDB 4 server; CI tests two independent connections.
+- Connect initializes the six required tables with idempotent `DEFINE TABLE IF NOT EXISTS` statements before transactional writes; the connecting account needs database schema permissions.
 - Does not require network access for embedded memory/file modes.
 - Before upgrading an existing persistent store from SurrealDB 2, back up its data and validate migration with the server's documented procedures; do not assume direct file-format compatibility across major versions.
 
