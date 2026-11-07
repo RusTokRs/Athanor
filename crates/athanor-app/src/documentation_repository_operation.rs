@@ -55,10 +55,14 @@ pub async fn plan_documentation_repository_with_composition(
     {
         bail!("repository documentation Store path must be a confined relative path");
     }
-    let canonical_store_path = root
-        .join(store_relative)
-        .canonicalize()
-        .context("repository documentation Store must already exist")?;
+    // Windows canonicalize() can return a verbatim (\\?\) prefix even when
+    // the already-normalized project root uses a drive/UNC prefix. Compare
+    // paths in the same representation before enforcing containment.
+    let canonical_store_path = normalize_canonical_path(
+        root.join(store_relative)
+            .canonicalize()
+            .context("repository documentation Store must already exist")?,
+    );
     if !canonical_store_path.starts_with(&root) {
         bail!("repository documentation Store resolves outside the project root");
     }
