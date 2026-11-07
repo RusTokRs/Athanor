@@ -1,5 +1,5 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
@@ -11,12 +11,11 @@ use athanor_domain::{
     Diagnostic, Entity, EntityId, Fact, GenerationId, Relation, RepoId, SnapshotBase, SnapshotId,
     StableKey,
 };
-use serde::de;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use surrealdb::Surreal;
 use surrealdb::engine::any::Any;
-use surrealdb::sql::Thing;
+use surrealdb::types::{RecordId, RecordIdKey, SurrealValue, Value as DbValue};
 use tokio::sync::Mutex;
 use tokio::time::{Duration, sleep};
 
@@ -34,7 +33,6 @@ pub struct SurrealKnowledgeStore {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SnapshotRecord {
-    #[serde(deserialize_with = "deserialize_id")]
     id: String,
     repo: String,
     base_branch: Option<String>,
@@ -54,23 +52,44 @@ struct SnapshotRecord {
     allocation_created_at_unix_ms: Option<u64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct CounterRecord {
-    count: u64,
-}
-
-#[derive(Debug, Deserialize)]
-struct DummyRecord {}
-
-fn deserialize_id<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: de::Deserializer<'de>,
-{
-    let thing = Thing::deserialize(deserializer)?;
-    match thing.id {
-        surrealdb::sql::Id::String(value) => Ok(value),
-        other => Ok(other.to_string()),
+// Decode typed database identities before converting the remaining payload to
+// JSON. In SDK v4, serde deserialization of a raw RecordId and of missing
+// optional fields differs between local and remote engines; normalizing the
+// payload at this boundary keeps domain IDs and fail-closed reads identical.
+fn snapshot_from_value(value: DbValue) -> CoreResult<SnapshotRecord> {
+    let DbValue::Object(mut fields) = value else {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record is not an object".to_string(),
+        ));
+    };
+    let record_id = match fields.remove("id") {
+        Some(DbValue::RecordId(id)) => id,
+        Some(DbValue::String(id)) => RecordId::parse_simple(&id).map_err(|error| {
+            CoreError::AdapterProtocol(format!("invalid snapshot record id {id:?}: {error}"))
+        })?,
+        _ => {
+            return Err(CoreError::AdapterProtocol(
+                "snapshot record is missing a typed id".to_string(),
+            ));
+        }
+    };
+    if record_id.table.as_str() != "snapshot" {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record has an unexpected table".to_string(),
+        ));
     }
+    let RecordIdKey::String(id) = record_id.key else {
+        return Err(CoreError::AdapterProtocol(
+            "snapshot record does not have a string key".to_string(),
+        ));
+    };
+    let mut json = DbValue::Object(fields).into_json_value();
+    let Value::Object(map) = &mut json else {
+        unreachable!("snapshot fields were an object");
+    };
+    map.insert("id".to_string(), Value::String(id));
+    serde_json::from_value(json)
+        .map_err(|error| CoreError::AdapterProtocol(format!("invalid snapshot record: {error}")))
 }
 
 fn snapshot_allocation_nonce() -> String {
@@ -96,6 +115,7 @@ impl SurrealKnowledgeStore {
             .await
             .map_err(|error| CoreError::Adapter(format!("failed to use NS/DB: {error}")))?;
 
+        define_store_tables(&db).await?;
         initialize_snapshot_counter(&db).await?;
 
         Ok(Self {
@@ -129,22 +149,35 @@ impl SurrealKnowledgeStore {
                     )));
                 }
             };
-            let counter: Option<CounterRecord> = response.take(0).map_err(|error| {
+            let counter: Option<Value> = response.take(0).map_err(|error| {
                 CoreError::Adapter(format!("failed to parse snapshot counter: {error}"))
             })?;
-            return counter.map(|counter| counter.count).ok_or_else(|| {
-                CoreError::Adapter("snapshot counter returned no record".to_string())
-            });
+            return counter
+                .and_then(|counter| counter.get("count").and_then(Value::as_u64))
+                .ok_or_else(|| {
+                    CoreError::Adapter("snapshot counter returned no integer count".to_string())
+                });
         }
         unreachable!("snapshot counter retry loop always returns");
     }
 
     async fn load_snapshot_record(&self, snapshot: &SnapshotId) -> CoreResult<SnapshotRecord> {
-        self.db
-            .select(("snapshot", &snapshot.0))
+        let record: Option<DbValue> = self
+            .db
+            .select(("snapshot", snapshot.0.as_str()))
             .await
-            .map_err(|error| CoreError::Adapter(format!("load snapshot failed: {error}")))?
-            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))
+            .map_err(|error| CoreError::Adapter(format!("load snapshot failed: {error}")))?;
+        let record = record
+            .map(snapshot_from_value)
+            .transpose()?
+            .ok_or_else(|| CoreError::NotFound(format!("snapshot {}", snapshot.0)))?;
+        if record.id != snapshot.0 {
+            return Err(CoreError::AdapterProtocol(format!(
+                "snapshot lookup returned a different ID: {}",
+                record.id
+            )));
+        }
+        Ok(record)
     }
 
     async fn ensure_writable_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<()> {
@@ -176,7 +209,7 @@ impl SurrealKnowledgeStore {
         for (original_id, record) in records {
             let record_id = format!("{}_{}", snapshot.0, original_id);
             let content = storage_content(&record, snapshot, &original_id)?;
-            let _: Option<DummyRecord> = self
+            let _: Option<Value> = self
                 .db
                 .upsert((table, record_id))
                 .content(content)
@@ -205,13 +238,13 @@ impl SurrealKnowledgeStore {
                     .map_err(|error| {
                         CoreError::Adapter(format!("query latest snapshot failed: {error}"))
                     })?;
-                let records: Vec<SnapshotRecord> = response.take(0).map_err(|error| {
+                let records: Vec<DbValue> = response.take(0).map_err(|error| {
                     CoreError::Adapter(format!("parse latest snapshot failed: {error}"))
                 })?;
-                let record = records
-                    .into_iter()
-                    .next()
-                    .ok_or_else(|| CoreError::NotFound("no committed snapshot".to_string()))?;
+                let record =
+                    snapshot_from_value(records.into_iter().next().ok_or_else(|| {
+                        CoreError::NotFound("no committed snapshot".to_string())
+                    })?)?;
                 let snapshot = SnapshotId(record.id.clone());
                 validate_committed_generation(&record, &snapshot)?;
                 return Ok(snapshot);
@@ -245,10 +278,7 @@ fn is_snapshot_record_collision(message: &str) -> bool {
     message.contains("database record") && message.contains("already exists")
 }
 
-fn validate_committed_generation(
-    record: &SnapshotRecord,
-    snapshot: &SnapshotId,
-) -> CoreResult<()> {
+fn validate_committed_generation(record: &SnapshotRecord, snapshot: &SnapshotId) -> CoreResult<()> {
     let Some(generation) = &record.generation else {
         // Migration window for committed records written before generation identity existed.
         return Ok(());
@@ -263,24 +293,55 @@ fn validate_committed_generation(
     Ok(())
 }
 
-async fn initialize_snapshot_counter(db: &Surreal<Any>) -> CoreResult<()> {
+async fn define_store_tables(db: &Surreal<Any>) -> CoreResult<()> {
+    // SurrealDB 4 does not implicitly create missing tables for transactional
+    // INSERT. Define all canonical tables before the counter or any batch write;
+    // IF NOT EXISTS preserves an existing schema and is safe for repeated connects.
     db.query(
-        "INSERT IGNORE INTO meta [{ id: 'snapshot_counter', count: 0 }] RETURN NONE;",
+        "DEFINE TABLE IF NOT EXISTS meta SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS snapshot SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS entity SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS fact SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS relation SCHEMALESS; \
+         DEFINE TABLE IF NOT EXISTS diagnostic SCHEMALESS;",
     )
     .await
-    .map_err(|error| CoreError::Adapter(format!("failed to initialize snapshot counter: {error}")))?
+    .map_err(|error| CoreError::Adapter(format!("failed to define store tables: {error}")))?
     .check()
-    .map_err(|error| {
-        CoreError::Adapter(format!("snapshot counter initialization failed: {error}"))
-    })?;
+    .map_err(|error| CoreError::Adapter(format!("store table initialization failed: {error}")))?;
     Ok(())
 }
 
-fn storage_content<T>(
-    record: &T,
-    snapshot: &SnapshotId,
-    original_id: &str,
-) -> CoreResult<Value>
+async fn initialize_snapshot_counter(db: &Surreal<Any>) -> CoreResult<()> {
+    db.query("INSERT IGNORE INTO meta [{ id: meta:snapshot_counter, count: 0 }] RETURN NONE;")
+        .await
+        .map_err(|error| {
+            CoreError::Adapter(format!("failed to initialize snapshot counter: {error}"))
+        })?
+        .check()
+        .map_err(|error| {
+            CoreError::Adapter(format!("snapshot counter initialization failed: {error}"))
+        })?;
+    Ok(())
+}
+
+// SurrealDB 4 requires a typed RecordId for the `id` field. The target of a
+// create/update already supplies that ID; keep the stored payload free of a
+// second, untyped string ID and deserialize the returned typed ID explicitly.
+fn snapshot_content(record: &SnapshotRecord) -> CoreResult<Value> {
+    let mut content = serde_json::to_value(record).map_err(|error| {
+        CoreError::Adapter(format!("failed to serialize snapshot record: {error}"))
+    })?;
+    let Value::Object(map) = &mut content else {
+        return Err(CoreError::Adapter(
+            "serialized snapshot record must be an object".to_string(),
+        ));
+    };
+    map.remove("id");
+    Ok(content)
+}
+
+fn storage_content<T>(record: &T, snapshot: &SnapshotId, original_id: &str) -> CoreResult<Value>
 where
     T: Serialize,
 {
@@ -298,20 +359,21 @@ where
 }
 
 fn insert_record<T>(
+    table: &'static str,
     snapshot: &SnapshotId,
     original_id: &str,
     record: &T,
-) -> CoreResult<Value>
+) -> CoreResult<DbValue>
 where
     T: Serialize,
 {
-    let mut value = storage_content(record, snapshot, original_id)?;
-    let Value::Object(map) = &mut value else {
+    let mut value = storage_content(record, snapshot, original_id)?.into_value();
+    let DbValue::Object(map) = &mut value else {
         unreachable!("storage_content always returns an object");
     };
     map.insert(
-        "id".to_string(),
-        json!(format!("{}_{}", snapshot.0, original_id)),
+        "id",
+        RecordId::new(table, format!("{}_{}", snapshot.0, original_id)),
     );
     Ok(value)
 }
@@ -329,10 +391,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         const MAX_ATTEMPTS: usize = 32;
         for attempt in 0..MAX_ATTEMPTS {
             let sequence = self.allocate_snapshot_sequence().await?;
-            let snapshot_id = format!(
-    "snap_surreal_{sequence:08}_{}",
-    snapshot_allocation_nonce()
-);
+            let snapshot_id = format!("snap_surreal_{sequence:08}_{}", snapshot_allocation_nonce());
             let record = SnapshotRecord {
                 id: snapshot_id.clone(),
                 repo: repo.clone(),
@@ -351,12 +410,11 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             let response = self
                 .db
                 .query(
-                    "CREATE ONLY type::thing('snapshot', $snapshot_id) "
-                        .to_owned()
+                    "CREATE ONLY type::record('snapshot', $snapshot_id) ".to_owned()
                         + "CONTENT $record RETURN AFTER;",
                 )
                 .bind(("snapshot_id", snapshot_id.clone()))
-                .bind(("record", record))
+                .bind(("record", snapshot_content(&record)?))
                 .await
                 .map_err(|error| {
                     CoreError::Adapter(format!(
@@ -379,12 +437,16 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                     )));
                 }
             };
-            let created: Option<SnapshotRecord> = response.take(0).map_err(|error| {
-                CoreError::Adapter(format!(
-                    "failed to parse created snapshot record: {error}"
-                ))
+            let created: Option<DbValue> = response.take(0).map_err(|error| {
+                CoreError::Adapter(format!("failed to parse created snapshot record: {error}"))
             })?;
-            if created.is_some() {
+            if let Some(created) = created {
+                let created = snapshot_from_value(created)?;
+                if created.id != snapshot_id || created.repo != repo {
+                    return Err(CoreError::AdapterProtocol(
+                        "snapshot allocation returned a different record".to_string(),
+                    ));
+                }
                 return Ok(SnapshotId(snapshot_id));
             }
             if attempt + 1 < MAX_ATTEMPTS {
@@ -443,8 +505,7 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             .into_iter()
             .map(|diagnostic| (diagnostic.id.0.clone(), diagnostic))
             .collect();
-        self.upsert_records("diagnostic", &snapshot, records)
-            .await
+        self.upsert_records("diagnostic", &snapshot, records).await
     }
 
     async fn put_snapshot(&self, snapshot: SnapshotId, batch: SnapshotBatch) -> CoreResult<()> {
@@ -454,22 +515,22 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let entities = batch
             .entities
             .iter()
-            .map(|entity| insert_record(&snapshot, &entity.id.0, entity))
+            .map(|entity| insert_record("entity", &snapshot, &entity.id.0, entity))
             .collect::<CoreResult<Vec<_>>>()?;
         let facts = batch
             .facts
             .iter()
-            .map(|fact| insert_record(&snapshot, &fact.id.0, fact))
+            .map(|fact| insert_record("fact", &snapshot, &fact.id.0, fact))
             .collect::<CoreResult<Vec<_>>>()?;
         let relations = batch
             .relations
             .iter()
-            .map(|relation| insert_record(&snapshot, &relation.id.0, relation))
+            .map(|relation| insert_record("relation", &snapshot, &relation.id.0, relation))
             .collect::<CoreResult<Vec<_>>>()?;
         let diagnostics = batch
             .diagnostics
             .iter()
-            .map(|diagnostic| insert_record(&snapshot, &diagnostic.id.0, diagnostic))
+            .map(|diagnostic| insert_record("diagnostic", &snapshot, &diagnostic.id.0, diagnostic))
             .collect::<CoreResult<Vec<_>>>()?;
 
         let mut sql = String::from("BEGIN;\n");
@@ -495,7 +556,9 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             .bind(("diagnostics", diagnostics))
             .await
             .map_err(|error| {
-                CoreError::Adapter(format!("failed to execute snapshot batch transaction: {error}"))
+                CoreError::Adapter(format!(
+                    "failed to execute snapshot batch transaction: {error}"
+                ))
             })?
             .check()
             .map_err(|error| {
@@ -518,13 +581,16 @@ impl KnowledgeStore for SurrealKnowledgeStore {
             return Ok(());
         }
         record.prepared = true;
-        let _: Option<SnapshotRecord> = self
+        let _: Option<Value> = self
             .db
-            .update(("snapshot", &snapshot.0))
-            .content(record)
+            .update(("snapshot", snapshot.0.as_str()))
+            .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
-                CoreError::Adapter(format!("failed to prepare snapshot {}: {error}", snapshot.0))
+                CoreError::Adapter(format!(
+                    "failed to prepare snapshot {}: {error}",
+                    snapshot.0
+                ))
             })?;
         Ok(())
     }
@@ -561,10 +627,10 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let mut response = self
             .db
             .query(sql)
-            .bind(params)
+            .bind(Value::Object(params))
             .await
             .map_err(|error| CoreError::Adapter(format!("query entities failed: {error}")))?;
-        let value: surrealdb::Value = response.take(0).map_err(|error| {
+        let value: DbValue = response.take(0).map_err(|error| {
             CoreError::Adapter(format!("failed to parse query entities: {error}"))
         })?;
         deserialize_list(value)
@@ -600,10 +666,10 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let mut response = self
             .db
             .query(sql)
-            .bind(params)
+            .bind(Value::Object(params))
             .await
             .map_err(|error| CoreError::Adapter(format!("query relations failed: {error}")))?;
-        let value: surrealdb::Value = response.take(0).map_err(|error| {
+        let value: DbValue = response.take(0).map_err(|error| {
             CoreError::Adapter(format!("failed to parse query relations: {error}"))
         })?;
         deserialize_list(value)
@@ -639,10 +705,10 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         let mut response = self
             .db
             .query(sql)
-            .bind(params)
+            .bind(Value::Object(params))
             .await
             .map_err(|error| CoreError::Adapter(format!("query diagnostics failed: {error}")))?;
-        let value: surrealdb::Value = response.take(0).map_err(|error| {
+        let value: DbValue = response.take(0).map_err(|error| {
             CoreError::Adapter(format!("failed to parse query diagnostics: {error}"))
         })?;
         deserialize_list(value)
@@ -657,10 +723,10 @@ impl KnowledgeStore for SurrealKnowledgeStore {
         record.prepared = true;
         record.committed = true;
         record.generation = Some(GenerationId::for_snapshot(&snapshot));
-        let _: Option<SnapshotRecord> = self
+        let _: Option<Value> = self
             .db
-            .update(("snapshot", &snapshot.0))
-            .content(record)
+            .update(("snapshot", snapshot.0.as_str()))
+            .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!("failed to commit snapshot {}: {error}", snapshot.0))
@@ -697,9 +763,9 @@ impl KnowledgeStore for SurrealKnowledgeStore {
                 CoreError::Adapter(format!("aborted snapshot cleanup rolled back: {error}"))
             })?;
 
-        let _: Option<DummyRecord> = self
+        let _: Option<Value> = self
             .db
-            .delete(("snapshot", &snapshot.0))
+            .delete(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!("failed to delete aborted snapshot: {error}"))
@@ -738,9 +804,9 @@ impl EntityResolver for SurrealKnowledgeStore {
 #[async_trait]
 impl CanonicalSnapshotStore for SurrealKnowledgeStore {
     async fn load_snapshot(&self, snapshot: &SnapshotId) -> CoreResult<Option<CanonicalSnapshot>> {
-        let snapshot_record: Option<SnapshotRecord> = self
+        let snapshot_record: Option<DbValue> = self
             .db
-            .select(("snapshot", &snapshot.0))
+            .select(("snapshot", snapshot.0.as_str()))
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!("failed to load snapshot record: {error}"))
@@ -748,6 +814,12 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
         let Some(snapshot_record) = snapshot_record else {
             return Ok(None);
         };
+        let snapshot_record = snapshot_from_value(snapshot_record)?;
+        if snapshot_record.id != snapshot.0 {
+            return Err(CoreError::AdapterProtocol(
+                "snapshot lookup returned a different ID".to_string(),
+            ));
+        }
         if !snapshot_record.committed {
             return Err(CoreError::SnapshotNotCommitted(snapshot.0.clone()));
         }
@@ -776,14 +848,17 @@ impl CanonicalSnapshotStore for SurrealKnowledgeStore {
             )
             .await
             .map_err(|error| {
-                CoreError::Adapter(format!("failed to query latest committed snapshot: {error}"))
+                CoreError::Adapter(format!(
+                    "failed to query latest committed snapshot: {error}"
+                ))
             })?;
-        let snapshots: Vec<SnapshotRecord> = response.take(0).map_err(|error| {
+        let snapshots: Vec<DbValue> = response.take(0).map_err(|error| {
             CoreError::Adapter(format!("failed to parse latest snapshot query: {error}"))
         })?;
 
-        if let Some(latest) = snapshots.first() {
-            self.load_snapshot(&SnapshotId(latest.id.clone())).await
+        if let Some(latest) = snapshots.into_iter().next() {
+            let latest = snapshot_from_value(latest)?;
+            self.load_snapshot(&SnapshotId(latest.id)).await
         } else {
             Ok(None)
         }
@@ -806,7 +881,7 @@ where
         .map_err(|error| {
             CoreError::Adapter(format!("failed to load snapshot {table} records: {error}"))
         })?;
-    let value: surrealdb::Value = response.take(0).map_err(|error| {
+    let value: DbValue = response.take(0).map_err(|error| {
         CoreError::Adapter(format!("failed to parse snapshot {table} records: {error}"))
     })?;
     deserialize_list(value)
@@ -821,82 +896,17 @@ fn restore_original_id(value: &mut Value) {
     }
 }
 
-fn ast_to_flat_json(value: Value) -> Value {
-    match value {
-        Value::Object(mut map) => {
-            if map.len() == 1 {
-                let key = map.keys().next().expect("single map key").clone();
-                match key.as_str() {
-                    "None" | "Null" => Value::Null,
-                    "Bool" | "Strand" | "Uuid" | "Datetime" | "Duration" | "Number" | "Int"
-                    | "Float" | "Decimal" | "String" => {
-                        let inner = map.remove(&key).expect("single map value");
-                        ast_to_flat_json(inner)
-                    }
-                    "Array" => match map.remove("Array").expect("array value") {
-                        Value::Array(values) => {
-                            Value::Array(values.into_iter().map(ast_to_flat_json).collect())
-                        }
-                        other => ast_to_flat_json(other),
-                    },
-                    "Object" => match map.remove("Object").expect("object value") {
-                        Value::Object(inner) => Value::Object(
-                            inner
-                                .into_iter()
-                                .map(|(key, value)| (key, ast_to_flat_json(value)))
-                                .collect(),
-                        ),
-                        other => ast_to_flat_json(other),
-                    },
-                    "Thing" => {
-                        if let Some(Value::Object(mut thing)) = map.remove("Thing") {
-                            if let Some(id) = thing.remove("id") {
-                                ast_to_flat_json(id)
-                            } else {
-                                Value::Object(
-                                    thing
-                                        .into_iter()
-                                        .map(|(key, value)| (key, ast_to_flat_json(value)))
-                                        .collect(),
-                                )
-                            }
-                        } else {
-                            Value::Object(map)
-                        }
-                    }
-                    _ => Value::Object(
-                        map.into_iter()
-                            .map(|(key, value)| (key, ast_to_flat_json(value)))
-                            .collect(),
-                    ),
-                }
-            } else {
-                Value::Object(
-                    map.into_iter()
-                        .map(|(key, value)| (key, ast_to_flat_json(value)))
-                        .collect(),
-                )
-            }
-        }
-        Value::Array(values) => {
-            Value::Array(values.into_iter().map(ast_to_flat_json).collect())
-        }
-        other => other,
-    }
-}
-
-fn deserialize_list<T>(value: surrealdb::Value) -> CoreResult<Vec<T>>
+fn deserialize_list<T>(value: DbValue) -> CoreResult<Vec<T>>
 where
     T: for<'de> Deserialize<'de>,
 {
-    let json_value = serde_json::to_value(&value).map_err(|error| {
-        CoreError::Adapter(format!("failed to convert surrealdb value to json: {error}"))
-    })?;
-    let flat_value = ast_to_flat_json(json_value);
-
-    let Value::Array(values) = flat_value else {
+    // The SDK exposes JSON values directly in v4; unlike v2, no AST enum
+    // flattening is required. Replace the database ID with the original domain
+    // ID before deserializing so canonical JSONL contracts stay unchanged.
+    let json_value = value.into_json_value();
+    let Value::Array(values) = json_value else {
         return Err(CoreError::Adapter(format!(
-            "expected array result, got JSON: {value:?}"
+            "expected array result, got JSON: {json_value:?}"
         )));
     };
 
@@ -949,6 +959,65 @@ mod tests {
         }
     }
 
+    #[test]
+    fn snapshot_record_ids_round_trip_and_reject_wrong_tables_or_keys() {
+        let mut value = json!({
+            "repo": "repo_test",
+            "base_branch": null,
+            "base_commit": null,
+            "base_parent_snapshot": null,
+            "base_working_tree": true,
+            "sequence": 1,
+            "prepared": false,
+            "committed": false
+        })
+        .into_value();
+        let DbValue::Object(fields) = &mut value else {
+            panic!("snapshot payload must be an object");
+        };
+        fields.insert("id", RecordId::new("snapshot", "snap_surreal_test"));
+        assert_eq!(
+            snapshot_from_value(value.clone()).unwrap().id,
+            "snap_surreal_test"
+        );
+
+        let DbValue::Object(fields) = &mut value else {
+            unreachable!();
+        };
+        fields.insert("id", RecordId::new("other", "snap_surreal_test"));
+        assert!(matches!(
+            snapshot_from_value(value.clone()),
+            Err(CoreError::AdapterProtocol(_))
+        ));
+        let DbValue::Object(fields) = &mut value else {
+            unreachable!();
+        };
+        fields.insert("id", RecordId::new("snapshot", 42_i64));
+        assert!(matches!(
+            snapshot_from_value(value),
+            Err(CoreError::AdapterProtocol(_))
+        ));
+    }
+
+    #[test]
+    fn batched_record_ids_are_typed_and_domain_ids_round_trip() {
+        let snapshot = SnapshotId("snap_surreal_test".to_string());
+        let entity = entity("ent_file:readme", "file://README.md");
+        let value = insert_record("entity", &snapshot, &entity.id.0, &entity).unwrap();
+        let DbValue::Object(fields) = &value else {
+            panic!("batch record must be an object");
+        };
+        assert_eq!(
+            fields.get("id"),
+            Some(&DbValue::RecordId(RecordId::new(
+                "entity",
+                "snap_surreal_test_ent_file:readme"
+            )))
+        );
+        let restored: Vec<Entity> = deserialize_list(DbValue::Array(vec![value].into())).unwrap();
+        assert_eq!(restored, vec![entity]);
+    }
+
     #[tokio::test]
     async fn persists_and_loads_latest_snapshot() {
         let store = SurrealKnowledgeStore::connect("mem://").await.unwrap();
@@ -985,10 +1054,10 @@ mod tests {
 
         let mut record = store.load_snapshot_record(&snapshot).await.unwrap();
         record.generation = Some(GenerationId("gen_foreign".to_string()));
-        let _: Option<SnapshotRecord> = store
+        let _: Option<Value> = store
             .db
-            .update(("snapshot", &snapshot.0))
-            .content(record)
+            .update(("snapshot", snapshot.0.as_str()))
+            .content(snapshot_content(&record).unwrap())
             .await
             .unwrap();
 
@@ -1015,10 +1084,10 @@ mod tests {
         record.prepared = true;
         record.committed = true;
         record.generation = None;
-        let _: Option<SnapshotRecord> = store
+        let _: Option<Value> = store
             .db
-            .update(("snapshot", &snapshot.0))
-            .content(record)
+            .update(("snapshot", snapshot.0.as_str()))
+            .content(snapshot_content(&record).unwrap())
             .await
             .unwrap();
 

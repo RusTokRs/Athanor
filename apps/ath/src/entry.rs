@@ -27,10 +27,17 @@ mod repair;
 mod root_command;
 mod rustok_cli;
 
+// The embedded SurrealDB 4 engine needs a larger stack than Rust's default test threads.
+const CLI_THREAD_STACK_SIZE: usize = if cfg!(feature = "store-surreal") {
+    16 * 1024 * 1024
+} else {
+    8 * 1024 * 1024
+};
+
 fn main() -> Result<()> {
     std::thread::Builder::new()
         .name("athanor-cli".to_string())
-        .stack_size(8 * 1024 * 1024)
+        .stack_size(CLI_THREAD_STACK_SIZE)
         .spawn(run)
         .context("failed to start Athanor CLI thread")?
         .join()
@@ -107,8 +114,11 @@ fn run() -> Result<()> {
 }
 
 fn runtime(label: &str) -> Result<tokio::runtime::Runtime> {
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    let mut builder = tokio::runtime::Builder::new_multi_thread();
+    builder.enable_all();
+    #[cfg(feature = "store-surreal")]
+    builder.thread_stack_size(CLI_THREAD_STACK_SIZE);
+    builder
         .build()
         .with_context(|| format!("failed to start {label}"))
 }

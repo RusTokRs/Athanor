@@ -44,7 +44,11 @@ SurrealDB maps Athanor entities to structured document tables:
 ## Commands And Network
 
 - Does not run external commands.
-- Supports offline database operations. Connects using `mem://` or `surrealkv://path`.
+- Uses the SurrealDB 4.0 SDK for offline database operations (`mem://` or `surrealkv://path`).
+- With the opt-in `remote` feature, connects via WebSocket to a compatible SurrealDB 4 server. The Store Conformance CI runs against `surrealdb/surrealdb:v4.0.0`.
+- On connect, defines the six required tables with `DEFINE TABLE IF NOT EXISTS` so transaction inserts cannot fail on a fresh v4 database. Existing schemas are preserved; remote credentials must allow schema initialization.
+- Before switching an existing SurrealDB 2 persistent store to 4, back up its data and validate a supported migration; do not assume the on-disk format is directly compatible.
+- Snapshot and batch records use typed database record IDs. Reads restore the original Athanor IDs before returning canonical domain objects, preserving the JSONL contract.
 
 ## Limitations
 
@@ -52,6 +56,10 @@ SurrealDB maps Athanor entities to structured document tables:
 
 ## Tests
 
+SurrealDB 4's embedded engine can exceed the default Rust test-thread stack. CI uses a 16 MiB
+minimum; applications embedding this adapter must configure their runtime's initial and worker
+thread stacks as well. `ath` and `athd` do so with the `store-surreal` feature enabled.
+
 ```bash
-cargo test -p athanor-store-surrealdb
+RUST_MIN_STACK=16777216 cargo test -p athanor-store-surrealdb --locked
 ```

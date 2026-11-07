@@ -1,12 +1,16 @@
 #![allow(clippy::collapsible_if)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use athanor_core::{CoreResult, InvalidationPolicy, InvalidationScope, LinkInput, Linker};
+use athanor_core::{
+    AffectedSubset, CoreResult, InvalidationPolicy, InvalidationScope, LinkInput, Linker,
+    rust_identity::rust_file_symbol_identity,
+};
 use athanor_domain::{
-    Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Fact, Ownership, Relation, RelationId,
-    RelationKind, RelationStatus, SnapshotId,
+    Entity, EntityId, EntityKind, Evidence, EvidenceStatus, Fact, FactKind, Ownership, Relation,
+    RelationId, RelationKind, RelationStatus, SnapshotId,
 };
 use athanor_extractor_basic::stable_hash;
 use serde_json::json;
@@ -51,6 +55,21 @@ impl Linker for RustLinker {
     }
 
     async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {
+        if input
+            .entities
+            .iter()
+            .any(|entity| entity.stable_key.0.starts_with("symbol://rust:file:"))
+        {
+            return self.link_file_scopes(&input);
+        }
+        // Historical snapshots with only legacy global Rust keys retain their
+        // old behavior. The v97 index migration prevents their incremental reuse.
+        self.link_one(&input)
+    }
+}
+
+impl RustLinker {
+    fn link_one(&self, input: &LinkInput) -> CoreResult<Vec<Relation>> {
         let affected_ids = input
             .affected
             .entities
@@ -387,7 +406,13 @@ impl Linker for RustLinker {
                 .value
                 .get("symbol_kind")
                 .and_then(|value| value.as_str());
-            if impl_kind != Some("trait_impl") {
+            if impl_kind != Some("trait_impl")
+                || fact
+                    .value
+                    .get("conditional")
+                    .and_then(|value| value.as_bool())
+                    == Some(true)
+            {
                 continue;
             }
             let Some(self_type) = fact.value.get("self_type").and_then(|value| value.as_str())
@@ -401,10 +426,10 @@ impl Linker for RustLinker {
             else {
                 continue;
             };
-            let Some(type_entity) = unique_by_name(&types_by_name, self_type) else {
+            let Some(type_entity) = impl_endpoint(&types_by_name, self_type, fact) else {
                 continue;
             };
-            let Some(trait_entity) = unique_by_name(&traits_by_name, trait_name) else {
+            let Some(trait_entity) = impl_endpoint(&traits_by_name, trait_name, fact) else {
                 continue;
             };
             if !either_affected(type_entity, trait_entity, &affected_ids) {
@@ -426,6 +451,177 @@ impl Linker for RustLinker {
         relations.extend(calls_relations);
         Ok(relations)
     }
+
+    /// Rust's `crate` prefix and syntactic module names are not globally
+    /// unique. Until a committed Cargo target and module graph establish
+    /// cross-file identity, resolve calls/imports/impls only inside one file.
+    /// Invalid or legacy identities in a mixed snapshot cannot bridge scopes.
+    fn link_file_scopes(&self, input: &LinkInput) -> CoreResult<Vec<Relation>> {
+        // Group once: scanning the whole snapshot for every affected File is
+        // quadratic in a workspace with many Rust modules.
+        let mut refreshed_files = input
+            .affected
+            .entities
+            .iter()
+            .filter_map(|entity| changed_file_entity(entity, &input.snapshot))
+            .map(str::to_string)
+            .collect::<BTreeSet<_>>();
+        for fact in &input.affected.facts {
+            if fact.kind == FactKind::SymbolDefined
+                && fact.extractor == "rust"
+                && fact.snapshot == input.snapshot
+                && fact
+                    .value
+                    .get("symbol_kind")
+                    .and_then(|value| value.as_str())
+                    == Some("trait_impl")
+                && fact.ownership.len() == 1
+            {
+                refreshed_files.insert(fact.ownership[0].source_file.clone());
+            }
+        }
+        let mut affected_files = refreshed_files.clone();
+        affected_files.extend(input.affected.entities.iter().filter_map(|entity| {
+            rust_file_symbol_identity(entity).map(|(path, _)| path.to_string())
+        }));
+        let mut entities_by_file = BTreeMap::<String, Vec<Entity>>::new();
+        let mut affected_entities = BTreeMap::<String, Vec<Entity>>::new();
+        let mut facts_by_file = BTreeMap::<String, Vec<Fact>>::new();
+        let mut affected_facts = BTreeMap::<String, Vec<Fact>>::new();
+        for entity in input.entities.iter() {
+            if let Some((path, _)) = rust_file_symbol_identity(entity)
+                && affected_files.contains(path)
+            {
+                entities_by_file
+                    .entry(path.to_string())
+                    .or_default()
+                    .push(entity.clone());
+            }
+        }
+        for entity in &input.affected.entities {
+            if let Some((path, _)) = rust_file_symbol_identity(entity)
+                && entities_by_file.contains_key(path)
+            {
+                affected_entities
+                    .entry(path.to_string())
+                    .or_default()
+                    .push(entity.clone());
+            }
+        }
+        for fact in input.facts.iter() {
+            if let Some(owner) = fact.ownership.first()
+                && entities_by_file.contains_key(owner.source_file.as_str())
+                && scoped_impl_fact(fact, &owner.source_file, &input.snapshot)
+            {
+                facts_by_file
+                    .entry(owner.source_file.clone())
+                    .or_default()
+                    .push(fact.clone());
+            }
+        }
+        for fact in &input.affected.facts {
+            if let Some(owner) = fact.ownership.first()
+                && entities_by_file.contains_key(owner.source_file.as_str())
+                && scoped_impl_fact(fact, &owner.source_file, &input.snapshot)
+            {
+                affected_facts
+                    .entry(owner.source_file.clone())
+                    .or_default()
+                    .push(fact.clone());
+            }
+        }
+        let mut relations = Vec::new();
+        for (file, entities) in entities_by_file {
+            let affected = AffectedSubset {
+                entities: if refreshed_files.contains(&file) {
+                    // An added/removed impl or changed function body can alter
+                    // edges while all declarations keep their old identities.
+                    entities.clone()
+                } else {
+                    affected_entities.remove(&file).unwrap_or_default()
+                },
+                facts: affected_facts.remove(&file).unwrap_or_default(),
+                relations: Vec::new(),
+            };
+            relations.extend(self.link_one(&LinkInput {
+                snapshot: input.snapshot.clone(),
+                entities: Arc::new(entities),
+                facts: Arc::new(facts_by_file.remove(&file).unwrap_or_default()),
+                affected,
+            })?);
+        }
+        Ok(relations)
+    }
+}
+
+fn changed_file_entity<'a>(entity: &'a Entity, snapshot: &SnapshotId) -> Option<&'a str> {
+    let path = entity.name.as_str();
+    let file_key = format!("file://{path}");
+    (entity.kind == EntityKind::File
+        && path.ends_with(".rs")
+        && entity.source.as_ref()?.path == path
+        && entity.stable_key.0 == file_key
+        && entity.id.0 == format!("ent_file_{:016x}", stable_hash(file_key.as_bytes()))
+        && entity
+            .payload
+            .get("snapshot")
+            .and_then(|value| value.as_str())
+            == Some(snapshot.0.as_str())
+        && entity.ownership.len() == 1
+        && entity.ownership[0].source_file == path)
+        .then_some(path)
+}
+
+fn scoped_impl_fact(fact: &Fact, file: &str, snapshot: &SnapshotId) -> bool {
+    let file_key = format!("file://{file}");
+    fact.kind == FactKind::SymbolDefined
+        && fact.snapshot == *snapshot
+        && fact.extractor == "rust"
+        && fact.confidence.is_finite()
+        && fact.confidence > 0.0
+        && fact.subject.0 == format!("ent_file_{:016x}", stable_hash(file_key.as_bytes()))
+        && fact.object.is_none()
+        && fact.ownership.len() == 1
+        && fact.ownership[0].source_file == file
+        && fact
+            .value
+            .get("symbol_kind")
+            .and_then(|value| value.as_str())
+            == Some("trait_impl")
+        && fact
+            .value
+            .get("conditional")
+            .and_then(|value| value.as_bool())
+            == Some(false)
+        && fact
+            .value
+            .get("local_identifiers")
+            .and_then(|value| value.as_bool())
+            == Some(true)
+        && fact
+            .value
+            .get("trait_path")
+            .and_then(|value| value.as_str())
+            == fact
+                .value
+                .get("trait_name")
+                .and_then(|value| value.as_str())
+        && fact
+            .value
+            .get("impl_module")
+            .and_then(|value| value.as_str())
+            .is_some_and(|module| {
+                !module.is_empty() && module.len() <= 4096 && !module.chars().any(char::is_control)
+            })
+        && fact.evidence.len() == 1
+        && fact.evidence[0].source_file.as_deref() == Some(file)
+        && fact.evidence[0].extractor.as_deref() == Some("rust")
+        && fact.evidence[0].status == EvidenceStatus::Verified
+        && fact.evidence[0].confidence.is_finite()
+        && fact.evidence[0].confidence > 0.0
+        && fact.evidence[0].line_start.is_some_and(|line| line > 0)
+        && fact.evidence[0].line_end.is_some_and(|line| line > 0)
+        && fact.evidence[0].line_start <= fact.evidence[0].line_end
 }
 
 fn qualified_name(entity: &Entity) -> Option<&str> {
@@ -1598,6 +1794,49 @@ fn unique_by_name<'a>(index: &HashMap<&str, Vec<&'a Entity>>, name: &str) -> Opt
     }
 }
 
+// Legacy-only snapshots retain the historical name heuristic. New file-scoped
+// implementation facts must name direct, present declarations in the exact
+// inline module where the impl syntax occurred.
+fn impl_endpoint<'a>(
+    index: &HashMap<&str, Vec<&'a Entity>>,
+    name: &str,
+    fact: &Fact,
+) -> Option<&'a Entity> {
+    let module = fact
+        .value
+        .get("impl_module")
+        .and_then(|value| value.as_str());
+    let entity = if let Some(module) = module {
+        // A sibling inline module may declare the same name. Require exactly
+        // one match in the impl's own module, not global uniqueness by leaf.
+        let expected = format!("{module}::{name}");
+        let mut matches = index
+            .get(name)?
+            .iter()
+            .copied()
+            .filter(|entity| qualified_name(entity) == Some(expected.as_str()));
+        let only = matches.next()?;
+        matches.next().is_none().then_some(only)?
+    } else {
+        unique_by_name(index, name)?
+    };
+    if module.is_some()
+        && (entity
+            .payload
+            .get("symbol_kind")
+            .and_then(|value| value.as_str())
+            == Some("type_alias")
+            || entity
+                .payload
+                .get("rust_presence_unverified")
+                .and_then(|value| value.as_bool())
+                != Some(false))
+    {
+        return None;
+    }
+    Some(entity)
+}
+
 fn impl_relation(
     snapshot: &SnapshotId,
     type_entity: &Entity,
@@ -1639,7 +1878,8 @@ fn impl_relation(
     }
 }
 
-/// The impl-block evidence recorded by the extractor plus one anchor per endpoint.
+/// The extractor's impl span, an explicit linker-producer anchor, and any
+/// additional endpoint source anchors needed for a legacy cross-file bridge.
 fn impl_evidence(
     fact: &Fact,
     type_entity: &Entity,
@@ -1647,6 +1887,26 @@ fn impl_evidence(
     linker: &str,
 ) -> Vec<Evidence> {
     let mut evidence = fact.evidence.clone();
+    // The fact's evidence is from `rust`, not `rust-linker`. An explicit linker
+    // anchor is required so incremental/global invalidation can identify and
+    // drop a derived bridge when the impl syntax disappears.
+    let anchor = fact.evidence.first();
+    evidence.push(Evidence {
+        source_file: anchor
+            .and_then(|span| span.source_file.clone())
+            .or_else(|| {
+                type_entity
+                    .source
+                    .as_ref()
+                    .map(|source| source.path.clone())
+            }),
+        line_start: anchor.and_then(|span| span.line_start),
+        line_end: anchor.and_then(|span| span.line_end),
+        extractor: Some(linker.to_string()),
+        commit_hash: None,
+        confidence: TRAIT_IMPL_CONFIDENCE,
+        status: EvidenceStatus::Inferred,
+    });
     for entity in [type_entity, trait_entity] {
         let Some(source) = entity.source.as_ref() else {
             continue;
@@ -1687,6 +1947,11 @@ fn trait_implementors<'a>(
             .get("symbol_kind")
             .and_then(|value| value.as_str())
             != Some("trait_impl")
+            || fact
+                .value
+                .get("conditional")
+                .and_then(|value| value.as_bool())
+                == Some(true)
         {
             continue;
         }
@@ -1701,8 +1966,8 @@ fn trait_implementors<'a>(
             continue;
         };
         let (Some(type_entity), Some(trait_entity)) = (
-            unique_by_name(types_by_name, self_type),
-            unique_by_name(traits_by_name, trait_name),
+            impl_endpoint(types_by_name, self_type, fact),
+            impl_endpoint(traits_by_name, trait_name, fact),
         ) else {
             continue;
         };
@@ -4893,6 +5158,465 @@ mod tests {
                 "imports": imports,
             }),
         )
+    }
+
+    #[tokio::test]
+    async fn same_named_files_link_only_their_own_symbols() {
+        let left = "crates/left/shared/src/lib.rs";
+        let right = "crates/right/shared/src/lib.rs";
+        let left_helper = scoped_symbol("left_helper", left, "crate::helper", json!([]));
+        let left_caller = scoped_symbol(
+            "left_caller",
+            left,
+            "crate::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let right_helper = scoped_symbol("right_helper", right, "crate::helper", json!([]));
+        let right_caller = scoped_symbol(
+            "right_caller",
+            right,
+            "crate::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let relations = link_all(
+            vec![
+                left_helper.clone(),
+                left_caller.clone(),
+                right_helper.clone(),
+                right_caller.clone(),
+            ],
+            vec![],
+        )
+        .await;
+        let calls = relations
+            .iter()
+            .filter(|r| r.kind == RelationKind::Calls)
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 2);
+        assert!(
+            calls
+                .iter()
+                .any(|r| r.from == left_caller.id && r.to == left_helper.id)
+        );
+        assert!(
+            calls
+                .iter()
+                .any(|r| r.from == right_caller.id && r.to == right_helper.id)
+        );
+        assert!(relations.iter().all(|r| {
+            let from_left = [left_helper.id.clone(), left_caller.id.clone()].contains(&r.from);
+            let to_left = [left_helper.id.clone(), left_caller.id.clone()].contains(&r.to);
+            from_left == to_left
+        }));
+    }
+
+    #[tokio::test]
+    async fn file_scoped_incremental_link_only_scans_affected_files() {
+        let left = "src/left.rs";
+        let right = "src/right.rs";
+        let left_helper = scoped_symbol("left_helper", left, "crate::left::helper", json!([]));
+        let left_caller = scoped_symbol(
+            "left_caller",
+            left,
+            "crate::left::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let right_helper = scoped_symbol("right_helper", right, "crate::right::helper", json!([]));
+        let right_caller = scoped_symbol(
+            "right_caller",
+            right,
+            "crate::right::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let relations = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: Arc::new(vec![
+                    left_helper.clone(),
+                    left_caller.clone(),
+                    right_helper,
+                    right_caller,
+                ]),
+                facts: Arc::new(vec![]),
+                affected: AffectedSubset::from_extracted(vec![left_caller.clone()], vec![]),
+            })
+            .await
+            .unwrap();
+        assert!(
+            relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Calls
+                    && relation.from == left_caller.id
+                    && relation.to == left_helper.id)
+        );
+        assert!(relations.iter().all(|relation| relation.from
+            != EntityId("right_caller".to_string())
+            && relation.to != EntityId("right_helper".to_string())));
+    }
+
+    #[tokio::test]
+    async fn no_cross_file_link_is_inferred_from_a_unique_global_name() {
+        let caller = scoped_symbol(
+            "caller",
+            "src/lib.rs",
+            "crate::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let helper = scoped_symbol("helper", "src/helper.rs", "crate::helper", json!([]));
+        let relations = link_all(vec![caller, helper], vec![]).await;
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Calls)
+        );
+    }
+
+    #[tokio::test]
+    async fn trait_impl_fact_cannot_attach_a_type_to_a_trait_from_another_file() {
+        let left = "crates/left/src/lib.rs";
+        let right = "crates/right/src/lib.rs";
+        let mut target = scoped_symbol("type", left, "crate::Record", json!([]));
+        target.kind = EntityKind::Symbol;
+        target.payload["symbol_kind"] = json!("struct");
+        let mut unrelated = scoped_symbol("trait", right, "crate::Reader", json!([]));
+        unrelated.kind = EntityKind::Symbol;
+        unrelated.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl", "type", "Record", "Reader", "Reader");
+        fact.ownership = athanor_extractor_basic::ownership_for_file(left);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            left,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.subject = EntityId(format!(
+            "ent_file_{:016x}",
+            stable_hash(format!("file://{left}").as_bytes())
+        ));
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["impl_module"] = json!("crate");
+        let relations = link_all(vec![target, unrelated], vec![fact]).await;
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+    }
+
+    #[tokio::test]
+    async fn verified_unconditional_impl_bridges_only_the_same_file() {
+        let path = "src/lib.rs";
+        let mut target = scoped_symbol("type", path, "crate::Record", json!([]));
+        target.kind = EntityKind::Symbol;
+        target.payload["symbol_kind"] = json!("struct");
+        let mut reader = scoped_symbol("trait", path, "crate::Reader", json!([]));
+        reader.kind = EntityKind::Symbol;
+        reader.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl", "type", "Record", "Reader", "Reader");
+        fact.ownership = athanor_extractor_basic::ownership_for_file(path);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            path,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.subject = EntityId(format!(
+            "ent_file_{:016x}",
+            stable_hash(format!("file://{path}").as_bytes())
+        ));
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["impl_module"] = json!("crate");
+        let relations = link_all(vec![target.clone(), reader.clone()], vec![fact.clone()]).await;
+        assert!(relations.iter().any(|relation| {
+            relation.kind == RelationKind::Implements
+                && relation.from == target.id
+                && relation.to == reader.id
+        }));
+        fact.value["conditional"] = json!(true);
+        let conditional = link_all(vec![target, reader], vec![fact]).await;
+        assert!(
+            conditional
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+    }
+
+    #[tokio::test]
+    async fn same_named_sibling_module_declarations_do_not_hide_local_impl_endpoints() {
+        let path = "src/lib.rs";
+        let mut root_type = scoped_symbol("root_type", path, "crate::Record", json!([]));
+        root_type.kind = EntityKind::Symbol;
+        root_type.payload["symbol_kind"] = json!("struct");
+        let mut root_trait = scoped_symbol("root_trait", path, "crate::Reader", json!([]));
+        root_trait.kind = EntityKind::Symbol;
+        root_trait.payload["symbol_kind"] = json!("trait");
+        let mut sibling_type =
+            scoped_symbol("sibling_type", path, "crate::nested::Record", json!([]));
+        sibling_type.kind = EntityKind::Symbol;
+        sibling_type.payload["symbol_kind"] = json!("struct");
+        let mut sibling_trait =
+            scoped_symbol("sibling_trait", path, "crate::nested::Reader", json!([]));
+        sibling_trait.kind = EntityKind::Symbol;
+        sibling_trait.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl_root", "root_type", "Record", "Reader", "Reader");
+        fact.subject = EntityId(format!(
+            "ent_file_{:016x}",
+            stable_hash(format!("file://{path}").as_bytes())
+        ));
+        fact.ownership = athanor_extractor_basic::ownership_for_file(path);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            path,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["impl_module"] = json!("crate");
+        let relations = link_all(
+            vec![
+                root_type.clone(),
+                root_trait.clone(),
+                sibling_type.clone(),
+                sibling_trait.clone(),
+            ],
+            vec![fact],
+        )
+        .await;
+        assert!(
+            relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements
+                    && relation.from == root_type.id
+                    && relation.to == root_trait.id)
+        );
+        assert!(
+            relations
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements
+                    || (relation.from != sibling_type.id && relation.to != sibling_trait.id))
+        );
+    }
+
+    #[tokio::test]
+    async fn changed_file_relinks_marker_impl_even_when_type_and_trait_are_reused() {
+        let path = "src/lib.rs";
+        let file = athanor_extractor_basic::file_entity(
+            &athanor_core::SourceFile {
+                path: path.to_string(),
+                language_hint: Some("rust".to_string()),
+                content_hash: Some("changed".to_string()),
+                content: None,
+            },
+            "snap_test",
+        );
+        let mut target = scoped_symbol("type", path, "crate::Record", json!([]));
+        target.kind = EntityKind::Symbol;
+        target.payload["symbol_kind"] = json!("struct");
+        let mut reader = scoped_symbol("trait", path, "crate::Reader", json!([]));
+        reader.kind = EntityKind::Symbol;
+        reader.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl", "type", "Record", "Reader", "Reader");
+        fact.subject = file.id.clone();
+        fact.ownership = athanor_extractor_basic::ownership_for_file(path);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            path,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["impl_module"] = json!("crate");
+        let entities = Arc::new(vec![file.clone(), target.clone(), reader.clone()]);
+        let with_impl = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone(),
+                facts: Arc::new(vec![fact.clone()]),
+                affected: AffectedSubset::from_extracted(vec![file.clone()], vec![fact.clone()]),
+            })
+            .await
+            .unwrap();
+        assert!(with_impl.iter().any(|relation| {
+            relation.kind == RelationKind::Implements
+                && relation.from == target.id
+                && relation.to == reader.id
+                && relation
+                    .evidence
+                    .iter()
+                    .any(|evidence| evidence.extractor.as_deref() == Some("rust-linker"))
+        }));
+        let fact_only = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities: entities.clone(),
+                facts: Arc::new(vec![fact.clone()]),
+                affected: AffectedSubset::from_extracted(vec![], vec![fact]),
+            })
+            .await
+            .unwrap();
+        assert!(
+            fact_only
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements)
+        );
+        let without_impl = RustLinker
+            .link(LinkInput {
+                snapshot: SnapshotId("snap_test".to_string()),
+                entities,
+                facts: Arc::new(vec![]),
+                affected: AffectedSubset::from_extracted(vec![file], vec![]),
+            })
+            .await
+            .unwrap();
+        assert!(
+            without_impl
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+    }
+
+    #[tokio::test]
+    async fn workspace_member_syntactic_root_keeps_its_local_impl_scope() {
+        let path = "crates/alpha/src/lib.rs";
+        let mut target = scoped_symbol("type", path, "alpha::Record", json!([]));
+        target.kind = EntityKind::Symbol;
+        target.payload["symbol_kind"] = json!("struct");
+        let mut reader = scoped_symbol("trait", path, "alpha::Reader", json!([]));
+        reader.kind = EntityKind::Symbol;
+        reader.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl", "type", "Record", "Reader", "Reader");
+        fact.subject = EntityId(format!(
+            "ent_file_{:016x}",
+            stable_hash(format!("file://{path}").as_bytes())
+        ));
+        fact.ownership = athanor_extractor_basic::ownership_for_file(path);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            path,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["impl_module"] = json!("alpha");
+        let relations = link_all(vec![target.clone(), reader.clone()], vec![fact]).await;
+        assert!(
+            relations
+                .iter()
+                .any(|relation| relation.kind == RelationKind::Implements
+                    && relation.from == target.id
+                    && relation.to == reader.id)
+        );
+    }
+
+    #[tokio::test]
+    async fn qualified_or_other_module_impl_does_not_gain_a_local_trait_owner() {
+        let path = "src/lib.rs";
+        let mut target = scoped_symbol("type", path, "crate::Record", json!([]));
+        target.kind = EntityKind::Symbol;
+        target.payload["symbol_kind"] = json!("struct");
+        let mut reader = scoped_symbol("trait", path, "crate::Reader", json!([]));
+        reader.kind = EntityKind::Symbol;
+        reader.payload["symbol_kind"] = json!("trait");
+        let mut fact = impl_fact("impl", "type", "Record", "Reader", "other::Reader");
+        fact.subject = EntityId(format!(
+            "ent_file_{:016x}",
+            stable_hash(format!("file://{path}").as_bytes())
+        ));
+        fact.ownership = athanor_extractor_basic::ownership_for_file(path);
+        fact.evidence = vec![athanor_extractor_basic::evidence_for_file(
+            path,
+            "rust",
+            Some(1),
+            Some(1),
+        )];
+        fact.value["conditional"] = json!(false);
+        fact.value["local_identifiers"] = json!(false);
+        fact.value["impl_module"] = json!("crate");
+        assert!(
+            link_all(vec![target.clone(), reader.clone()], vec![fact.clone()])
+                .await
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+
+        fact.value["local_identifiers"] = json!(true);
+        fact.value["trait_path"] = json!("Reader");
+        fact.value["impl_module"] = json!("crate::nested");
+        assert!(
+            link_all(vec![target.clone(), reader.clone()], vec![fact.clone()])
+                .await
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+
+        fact.value["impl_module"] = json!("crate");
+        let mut alias = target.clone();
+        alias.payload["symbol_kind"] = json!("type_alias");
+        assert!(
+            link_all(vec![alias, reader.clone()], vec![fact.clone()])
+                .await
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+        reader.payload["rust_presence_unverified"] = json!(true);
+        assert!(
+            link_all(vec![target, reader], vec![fact])
+                .await
+                .iter()
+                .all(|relation| relation.kind != RelationKind::Implements)
+        );
+    }
+
+    #[tokio::test]
+    async fn mixed_or_invalid_rust_identity_cannot_bridge_file_scopes() {
+        let path = "crates/app/src/lib.rs";
+        let caller = scoped_symbol(
+            "caller",
+            path,
+            "app::caller",
+            json!([call_site("function", "helper", "helper")]),
+        );
+        let mut malformed = scoped_symbol("malformed", path, "app::helper", json!([]));
+        malformed.payload["source_file"] = json!("crates/other/src/lib.rs");
+        let legacy = entity(
+            "legacy",
+            "symbol://rust:app::helper",
+            EntityKind::Function,
+            "helper",
+            json!({"qualified_name":"app::helper"}),
+        );
+        let relations = link_all(vec![caller, malformed, legacy], vec![]).await;
+        assert!(relations.is_empty());
+    }
+
+    fn scoped_symbol(
+        id: &str,
+        path: &str,
+        qualified_name: &str,
+        calls: serde_json::Value,
+    ) -> Entity {
+        let mut symbol = entity(
+            id,
+            &athanor_core::rust_identity::rust_file_symbol_key(path, qualified_name),
+            EntityKind::Function,
+            qualified_name.rsplit("::").next().unwrap_or(qualified_name),
+            json!({
+                "qualified_name": qualified_name,
+                "symbol_kind": "function",
+                "calls": calls,
+                "source_file": path,
+                "rust_identity_version": 1,
+                "rust_presence_unverified": false,
+            }),
+        );
+        symbol.source.as_mut().unwrap().path = path.to_string();
+        symbol.ownership = athanor_extractor_basic::ownership_for_file(path);
+        symbol
     }
 
     fn entity(

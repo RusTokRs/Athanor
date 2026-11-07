@@ -11,11 +11,13 @@ use athanor_core::{
 #[cfg(test)]
 use athanor_core::{CheckInput, ExtractInput, LinkInput};
 use athanor_domain::{
-    Diagnostic, Entity, EntityId, Evidence, Fact, Relation, RepoId, SnapshotBase, SnapshotId,
+    Diagnostic, Entity, EntityId, Evidence, Fact, FactKind, Relation, RepoId, SnapshotBase,
+    SnapshotId,
 };
 use serde::Serialize;
 use tracing::{debug, info};
 
+use crate::invalidation::plan_invalidation_with_changes;
 use crate::pipeline_merge::{
     canonicalize_diagnostics, canonicalize_entities, canonicalize_facts, canonicalize_relations,
 };
@@ -29,7 +31,7 @@ use crate::pipeline_support::{
 };
 use crate::{
     AdapterInvalidationDeclaration, AffectedFileSet, CancellationToken, IndexState,
-    dependency_closure, plan_invalidation, unchanged_declarations,
+    dependency_closure, unchanged_declarations,
 };
 
 const DEFAULT_EXTRACTION_CONCURRENCY_LIMIT: usize = 16;
@@ -572,13 +574,26 @@ impl IndexPipeline {
         info!(file_count = files.len(), "completed source discovery");
         let classification_started = Instant::now();
         let mut affected_files = incremental.previous_state.affected_files(&files);
+        let shared_env_sources = mark_shared_env_sources_for_reextraction(
+            incremental.previous_snapshot.as_ref(),
+            &mut affected_files,
+        );
+        debug!(
+            shared_env_sources,
+            "re-extracting unchanged sources of shared environment variables"
+        );
 
         let has_added_files = affected_files
             .changed
             .iter()
             .any(|path| !incremental.previous_state.files.contains_key(path));
-        let invalidation_plan = plan_invalidation(
+        let has_changed_existing_files = affected_files
+            .changed
+            .iter()
+            .any(|path| incremental.previous_state.files.contains_key(path));
+        let invalidation_plan = plan_invalidation_with_changes(
             self.invalidation_declarations(),
+            has_changed_existing_files,
             has_added_files,
             !affected_files.removed.is_empty(),
         );
@@ -702,9 +717,8 @@ impl IndexPipeline {
             "completed extraction"
         );
         // A changed file invalidates the declarations that changed, not every
-        // declaration the file happens to contain. Everything a linker or checker
-        // reads is fingerprinted, so a file that gained a blank line still reuses
-        // the objects it stated before.
+        // declaration it contains. Its facts are independently re-extracted and
+        // compared: a matching declaration cannot preserve a disappeared fact.
         let affected_paths = affected_files
             .changed
             .iter()
@@ -715,6 +729,11 @@ impl IndexPipeline {
             incremental.previous_snapshot.as_ref(),
             &affected_paths,
             &extracted_entities,
+        );
+        let fact_changed_paths = changed_fact_paths(
+            incremental.previous_snapshot.as_ref(),
+            &affected_files.changed,
+            &extracted_facts,
         );
         debug!(
             reused_declarations = reused_declarations.len(),
@@ -764,6 +783,35 @@ impl IndexPipeline {
                     .cloned(),
             );
         }
+        if !fact_changed_paths.is_empty() {
+            // A reused declaration whose attached facts changed is still an
+            // affected linker/checker input. Remove its prior derived objects
+            // before recomputing them, even when both endpoints were reused.
+            let mut affected_ids = affected_extracted
+                .entities
+                .iter()
+                .map(|entity| entity.id.clone())
+                .collect::<HashSet<_>>();
+            for entity in entities.iter() {
+                if entity_owned_by_any_path(entity, &fact_changed_paths)
+                    && affected_ids.insert(entity.id.clone())
+                {
+                    affected_extracted.entities.push(entity.clone());
+                }
+            }
+            let mut affected_fact_ids = affected_extracted
+                .facts
+                .iter()
+                .map(|fact| fact.id.clone())
+                .collect::<HashSet<_>>();
+            for fact in facts.iter() {
+                if fact_owned_by_any_path(fact, &fact_changed_paths)
+                    && affected_fact_ids.insert(fact.id.clone())
+                {
+                    affected_extracted.facts.push(fact.clone());
+                }
+            }
+        }
         let refresh_derived_globally = matches!(
             invalidation_plan.scope,
             crate::PlannedInvalidationScope::Global
@@ -795,6 +843,13 @@ impl IndexPipeline {
             ),
             crate::PlannedInvalidationScope::FileLocal => affected_extracted.clone(),
         };
+        // Compute the closure from prior links first, including those whose
+        // changed-file evidence we are about to discard.
+        if !fact_changed_paths.is_empty() {
+            prior_relations.retain(|rel| !relation_owned_by_any_path(rel, &fact_changed_paths));
+            prior_diagnostics
+                .retain(|diag| !diagnostic_owned_by_any_path(diag, &fact_changed_paths));
+        }
         metrics.canonicalize_ms += elapsed_ms(canonicalize_extracted_started.elapsed());
         debug!(
             entities = entities.len(),
@@ -1112,9 +1167,10 @@ pub(crate) fn validate_diagnostics(adapter: &str, diagnostics: &[Diagnostic]) ->
 }
 
 /// Parameters:
-/// * `reused` — the declarations a changed path states exactly as before. Their
-///   derived objects are carried forward instead of being recomputed, because the
-///   inputs that produced them did not move.
+/// * `reused` — declarations a changed path states exactly as before. Facts
+///   from that path are always re-extracted: an unchanged declaration does not
+///   prove that an env use, impl, or other attached fact still exists. File-owned
+///   Rust relations are likewise recomputed from current syntax.
 fn carried_forward_read_model(
     previous: Option<CanonicalSnapshot>,
     snapshot: &SnapshotId,
@@ -1151,27 +1207,31 @@ fn carried_forward_read_model(
         .facts
         .into_iter()
         .filter(|fact| {
-            let restated = reused.contains(&fact.subject);
             survives(&fact.subject)
                 && fact.object.as_ref().is_none_or(&survives)
-                && (restated || !fact_owned_by_any_path(fact, &affected_paths))
+                && !fact_owned_by_any_path(fact, &affected_paths)
         })
         .map(|mut fact| {
             fact.snapshot = snapshot.clone();
             fact
         })
         .collect::<Vec<_>>();
-    // A relation the changed file owns is still true when every endpoint still
-    // exists and one of them is a declaration the file restated identically:
-    // evidence is anchored on the endpoints themselves, so a span that did not
-    // move still proves it. A relation that only passes through the changed file
-    // keeps the previous behaviour and is recomputed instead.
+    // Reused endpoints alone cannot preserve a Rust relation: changing only
+    // an impl fact or a function body may add/remove an edge without changing
+    // the type or trait declarations. The Rust linker rebuilds each changed
+    // File's local relations from current facts and symbols below.
     let relations = previous
         .relations
         .into_iter()
         .filter(|relation| {
             survives(&relation.from)
                 && survives(&relation.to)
+                && !relation_owned_by_any_path(relation, removed_paths)
+                && !(relation_owned_by_any_path(relation, changed_paths)
+                    && relation
+                        .evidence
+                        .iter()
+                        .any(|evidence| evidence.extractor.as_deref() == Some("rust-linker")))
                 && (reused.contains(&relation.from)
                     || reused.contains(&relation.to)
                     || !relation_owned_by_any_path(relation, &affected_paths))
@@ -1187,6 +1247,7 @@ fn carried_forward_read_model(
         .filter(|diagnostic| {
             !diagnostic.entities.is_empty()
                 && diagnostic.entities.iter().all(survives)
+                && !diagnostic_owned_by_any_path(diagnostic, removed_paths)
                 && (diagnostic.entities.iter().all(|id| reused.contains(id))
                     || !diagnostic_owned_by_any_path(diagnostic, &affected_paths))
                 && !diagnostic_invalidated_by_changed_path(diagnostic, &affected_paths)
@@ -1200,6 +1261,148 @@ fn carried_forward_read_model(
     entities.sort_by(|left, right| left.id.0.cmp(&right.id.0));
 
     (entities, facts, relations, diagnostics)
+}
+
+/// An EnvVar has one global identity but canonical entity coalescing retains
+/// just one source. If that source changes or disappears, a fact in a different,
+/// unchanged File can still prove the variable exists. Re-extract the File that
+/// produced that fact before carrying forward entities: it supplies a fresh
+/// EnvVar with its own source, ownership and payload instead of leaving an
+/// orphaned fact or attributing the entity to a removed declaration.
+fn mark_shared_env_sources_for_reextraction(
+    previous: Option<&CanonicalSnapshot>,
+    affected: &mut AffectedFileSet,
+) -> usize {
+    let Some(previous) = previous else {
+        return 0;
+    };
+    if affected.unchanged.is_empty() || (affected.changed.is_empty() && affected.removed.is_empty())
+    {
+        return 0;
+    }
+    let changed_or_removed = affected
+        .changed
+        .iter()
+        .chain(affected.removed.iter())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    let shared_env_ids = previous
+        .entities
+        .iter()
+        .filter(|entity| {
+            entity.kind == athanor_domain::EntityKind::EnvVar
+                && entity_owned_by_any_path(entity, &changed_or_removed)
+        })
+        .map(|entity| entity.id.clone())
+        .collect::<HashSet<_>>();
+    if shared_env_ids.is_empty() {
+        return 0;
+    }
+    let mut additional = BTreeSet::new();
+    for fact in &previous.facts {
+        let references_env = shared_env_ids.contains(&fact.subject)
+            || fact
+                .object
+                .as_ref()
+                .is_some_and(|object| shared_env_ids.contains(object));
+        if fact.kind != FactKind::EnvVarUsed
+            || !matches!(fact.extractor.as_str(), "rust" | "operations")
+            || !references_env
+            || fact.ownership.len() != 1
+        {
+            continue;
+        }
+        let path = &fact.ownership[0].source_file;
+        if affected.unchanged.contains(path)
+            && fact.evidence.iter().any(|evidence| {
+                evidence.source_file.as_deref() == Some(path.as_str())
+                    && evidence.extractor.as_deref() == Some(fact.extractor.as_str())
+                    && evidence.status == athanor_domain::EvidenceStatus::Verified
+            })
+        {
+            additional.insert(path.clone());
+        }
+    }
+    for path in &additional {
+        affected.unchanged.remove(path);
+        affected.changed.insert(path.clone());
+    }
+    additional.len()
+}
+
+/// A declaration fingerprint does not include the syntax facts attached to it.
+/// Compare re-extracted facts by owner and all fields except the run's snapshot
+/// identity. FileDiscovered's content hash changes on every content edit and
+/// is already covered by the affected File entity, not by this fact delta.
+fn changed_fact_paths(
+    previous: Option<&CanonicalSnapshot>,
+    changed_paths: &BTreeSet<String>,
+    extracted: &[Fact],
+) -> BTreeSet<String> {
+    let Some(previous) = previous else {
+        return BTreeSet::new();
+    };
+    let previous = facts_by_changed_path(&previous.facts, changed_paths);
+    let current = facts_by_changed_path(extracted, changed_paths);
+    changed_paths
+        .iter()
+        .filter(|path| {
+            let old = previous
+                .get(path.as_str())
+                .map(Vec::as_slice)
+                .unwrap_or(&[]);
+            let new = current.get(path.as_str()).map(Vec::as_slice).unwrap_or(&[]);
+            old.len() != new.len()
+                || old
+                    .iter()
+                    .zip(new)
+                    .any(|(old, new)| !same_fact_without_snapshot(old, new))
+        })
+        .cloned()
+        .collect()
+}
+
+fn facts_by_changed_path<'a>(
+    facts: &'a [Fact],
+    changed_paths: &BTreeSet<String>,
+) -> BTreeMap<String, Vec<&'a Fact>> {
+    let mut grouped = BTreeMap::<String, Vec<&Fact>>::new();
+    for fact in facts {
+        if fact.kind == FactKind::FileDiscovered {
+            continue;
+        }
+        let mut seen = BTreeSet::new();
+        for path in fact
+            .ownership
+            .iter()
+            .map(|owner| owner.source_file.as_str())
+            .chain(
+                fact.evidence
+                    .iter()
+                    .filter_map(|evidence| evidence.source_file.as_deref()),
+            )
+        {
+            if changed_paths.contains(path) && seen.insert(path) {
+                grouped.entry(path.to_string()).or_default().push(fact);
+            }
+        }
+    }
+    for facts in grouped.values_mut() {
+        facts.sort_by(|left, right| left.id.0.cmp(&right.id.0));
+    }
+    grouped
+}
+
+fn same_fact_without_snapshot(old: &Fact, new: &Fact) -> bool {
+    old.id == new.id
+        && old.kind == new.kind
+        && old.subject == new.subject
+        && old.object == new.object
+        && old.value == new.value
+        && old.evidence == new.evidence
+        && old.ownership == new.ownership
+        && old.extractor == new.extractor
+        && old.confidence == new.confidence
 }
 
 fn removed_dependency_neighbor_ids(
@@ -1317,6 +1520,90 @@ mod tests {
         );
 
         assert!(relations.is_empty());
+    }
+
+    #[test]
+    fn changed_rust_file_drops_prior_linker_edges_even_with_reused_endpoints() {
+        let path = "src/lib.rs";
+        let left = entity("ent_type", path);
+        let right = entity("ent_trait", path);
+        let mut relation = relation("rel_rust_impl", "ent_type", "ent_trait");
+        relation.ownership = vec![ownership(path)];
+        relation.evidence = vec![Evidence {
+            source_file: Some(path.to_string()),
+            line_start: Some(1),
+            line_end: Some(1),
+            extractor: Some("rust-linker".to_string()),
+            commit_hash: None,
+            confidence: 0.7,
+            status: EvidenceStatus::Inferred,
+        }];
+        let (_, _, relations, _) = carried_forward_read_model(
+            Some(CanonicalSnapshot {
+                snapshot: Some(SnapshotId("snap_previous".to_string())),
+                entities: vec![left.clone(), right.clone()],
+                facts: Vec::new(),
+                relations: vec![relation],
+                diagnostics: Vec::new(),
+            }),
+            &SnapshotId("snap_next".to_string()),
+            &BTreeSet::from([path.to_string()]),
+            &BTreeSet::new(),
+            &HashSet::from([left.id, right.id]),
+        );
+        assert!(relations.is_empty());
+    }
+
+    #[test]
+    fn changed_hashless_file_drops_removed_impl_fact_with_reused_declarations() {
+        let path = "src/lib.rs";
+        let file = entity("ent_file", path);
+        let record = declaration(
+            "ent_record",
+            path,
+            json!({ "qualified_name": "crate::Record" }),
+        );
+        let reader = declaration(
+            "ent_reader",
+            path,
+            json!({ "qualified_name": "crate::Reader" }),
+        );
+        let mut impl_fact = owned_fact("fact_impl", "ent_file", path);
+        impl_fact.kind = FactKind::SymbolDefined;
+        impl_fact.value = json!({ "symbol_kind": "trait_impl" });
+        let mut impl_relation = owned_relation("rel_impl", "ent_record", "ent_reader", path);
+        impl_relation.kind = RelationKind::Implements;
+        impl_relation.evidence[0].extractor = Some("rust-linker".to_string());
+        let previous = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_previous".to_string())),
+            entities: vec![file.clone(), record.clone(), reader.clone()],
+            facts: vec![impl_fact],
+            relations: vec![impl_relation],
+            ..CanonicalSnapshot::default()
+        };
+        let changed = BTreeSet::from([path.to_string()]);
+        let reused = unchanged_declarations(
+            Some(&previous),
+            &changed,
+            &[file, record.clone(), reader.clone()],
+        );
+        assert_eq!(reused, HashSet::from([record.id, reader.id]));
+
+        let (_, facts, relations, _) = carried_forward_read_model(
+            Some(previous),
+            &SnapshotId("snap_next".to_string()),
+            &changed,
+            &BTreeSet::new(),
+            &reused,
+        );
+        assert!(
+            facts.is_empty(),
+            "removed File-owned impl syntax must not survive"
+        );
+        assert!(
+            relations.is_empty(),
+            "the prior derived impl edge must not survive"
+        );
     }
 
     #[test]
@@ -1494,7 +1781,7 @@ mod tests {
     }
 
     #[test]
-    fn carries_derived_objects_of_reused_declarations() {
+    fn reextracts_facts_but_carries_unchanged_derived_objects_of_reused_declarations() {
         let previous = CanonicalSnapshot {
             snapshot: Some(SnapshotId("snap_previous".to_string())),
             entities: vec![
@@ -1529,9 +1816,9 @@ mod tests {
             &reused,
         );
 
-        // The two declarations of the changed path are restated by extraction
-        // rather than carried; only their derived objects are reused. The
-        // untouched file is carried as before.
+        // Declarations and facts of the changed path come from current
+        // extraction; a reused declaration alone cannot certify its old facts.
+        // Unaffected derived objects can still be carried.
         assert_eq!(
             entities
                 .iter()
@@ -1539,12 +1826,9 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["ent_other"]
         );
-        assert_eq!(
-            facts
-                .iter()
-                .map(|fact| fact.id.0.as_str())
-                .collect::<Vec<_>>(),
-            vec!["fact_same"]
+        assert!(
+            facts.is_empty(),
+            "changed-file facts require current extraction"
         );
         assert_eq!(
             relations
@@ -1561,6 +1845,183 @@ mod tests {
             vec!["diag_same"]
         );
         assert_eq!(relations[0].snapshot.0, "snap_next");
+    }
+
+    #[test]
+    fn removed_canonical_env_source_reextracts_only_its_unchanged_witness() {
+        for extractor in ["rust", "operations"] {
+            let mut env = entity("env_shared", "src/removed.rs");
+            env.kind = EntityKind::EnvVar;
+            let mut witness = owned_fact("env_used", "run", "src/retained.rs");
+            witness.kind = FactKind::EnvVarUsed;
+            if extractor == "rust" {
+                witness.object = Some(env.id.clone());
+            } else {
+                witness.subject = env.id.clone();
+                witness.object = Some(EntityId("file_retained".to_string()));
+            }
+            witness.extractor = extractor.to_string();
+            witness.evidence[0].extractor = Some(extractor.to_string());
+            let mut unrelated = owned_fact("other_env", "other", "src/unrelated.rs");
+            unrelated.kind = FactKind::EnvVarUsed;
+            unrelated.object = Some(EntityId("env_other".to_string()));
+            unrelated.extractor = extractor.to_string();
+            unrelated.evidence[0].extractor = Some(extractor.to_string());
+            let previous = CanonicalSnapshot {
+                entities: vec![env],
+                facts: vec![witness, unrelated],
+                ..CanonicalSnapshot::default()
+            };
+            let mut affected = AffectedFileSet {
+                changed: BTreeSet::new(),
+                unchanged: BTreeSet::from([
+                    "src/retained.rs".to_string(),
+                    "src/unrelated.rs".to_string(),
+                ]),
+                removed: BTreeSet::from(["src/removed.rs".to_string()]),
+            };
+            assert_eq!(
+                mark_shared_env_sources_for_reextraction(Some(&previous), &mut affected),
+                1
+            );
+            assert_eq!(
+                affected.changed,
+                BTreeSet::from(["src/retained.rs".to_string()])
+            );
+            assert_eq!(
+                affected.unchanged,
+                BTreeSet::from(["src/unrelated.rs".to_string()])
+            );
+            assert_eq!(
+                affected.removed,
+                BTreeSet::from(["src/removed.rs".to_string()])
+            );
+        }
+    }
+
+    #[test]
+    fn changed_facts_refresh_reused_subjects_but_not_file_hash_only_changes() {
+        let path = "src/lib.rs";
+        let changed = BTreeSet::from([path.to_string()]);
+        let mut env_before = owned_fact("env_A", "run", path);
+        env_before.kind = FactKind::EnvVarUsed;
+        env_before.value = json!({"name": "A"});
+        let mut file_before = owned_fact("file", "file", path);
+        file_before.value = json!({"content_hash": "old"});
+        let previous = CanonicalSnapshot {
+            facts: vec![env_before.clone(), file_before.clone()],
+            ..CanonicalSnapshot::default()
+        };
+        let mut env_after = env_before;
+        env_after.snapshot = SnapshotId("next".to_string());
+        let mut file_after = file_before;
+        file_after.value = json!({"content_hash": "new"});
+        file_after.snapshot = SnapshotId("next".to_string());
+
+        assert!(
+            changed_fact_paths(
+                Some(&previous),
+                &changed,
+                &[env_after.clone(), file_after.clone()]
+            )
+            .is_empty(),
+            "a file hash alone already invalidates its File entity"
+        );
+        env_after.value = json!({"name": "B"});
+        assert_eq!(
+            changed_fact_paths(Some(&previous), &changed, &[env_after, file_after.clone()]),
+            changed
+        );
+        assert_eq!(
+            changed_fact_paths(Some(&previous), &changed, &[file_after]),
+            changed,
+            "deleting a fact on a reused declaration must refresh derived objects"
+        );
+    }
+
+    #[test]
+    fn removed_file_evidence_never_survives_reused_endpoints() {
+        let changed = "src/reused.rs";
+        let removed = "src/deleted.rs";
+        let previous = CanonicalSnapshot {
+            entities: vec![entity("run", changed)],
+            relations: vec![owned_relation("stale", "run", "run", removed)],
+            diagnostics: vec![owned_diagnostic("stale", "run", removed, "previous")],
+            ..CanonicalSnapshot::default()
+        };
+        let (_, _, relations, diagnostics) = carried_forward_read_model(
+            Some(previous),
+            &SnapshotId("next".to_string()),
+            &BTreeSet::from([changed.to_string()]),
+            &BTreeSet::from([removed.to_string()]),
+            &HashSet::from([EntityId("run".to_string())]),
+        );
+        assert!(relations.is_empty());
+        assert!(diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn changed_fact_on_reused_declaration_rechecks_its_derived_relation_and_neighbors() {
+        let path = "docs/shared.md";
+        let mut old_fact = owned_fact("fact_env", "ent_same", path);
+        old_fact.kind = FactKind::EnvVarUsed;
+        old_fact.value = json!({"name": "A"});
+        let previous = CanonicalSnapshot {
+            snapshot: Some(SnapshotId("snap_previous".to_string())),
+            entities: vec![
+                declaration("ent_same", path, json!({})),
+                declaration("ent_neighbor", "docs/neighbor.md", json!({})),
+            ],
+            facts: vec![old_fact],
+            relations: vec![owned_relation(
+                "rel_from_old_fact",
+                "ent_same",
+                "ent_neighbor",
+                path,
+            )],
+            ..CanonicalSnapshot::default()
+        };
+        let affected = Arc::new(Mutex::new(Vec::new()));
+        let output = IndexPipeline::new(TransientKnowledgeStore::new())
+            .source(TestSource)
+            .extractor(ReusedDeclarationChangedFactExtractor)
+            .linker(FactAwareCapturingLinker {
+                affected: affected.clone(),
+            })
+            .run_with_incremental(
+                RepoId("repo_changed_fact".to_string()),
+                SnapshotBase {
+                    branch: None,
+                    commit: None,
+                    parent_snapshot: None,
+                    working_tree: true,
+                },
+                IncrementalIndexContext {
+                    previous_state: IndexState {
+                        schema: "test".to_string(),
+                        snapshot: Some("snap_previous".to_string()),
+                        files: BTreeMap::from([(
+                            path.to_string(),
+                            FileState {
+                                content_hash: Some("old".to_string()),
+                                language_hint: Some("markdown".to_string()),
+                            },
+                        )]),
+                    },
+                    previous_snapshot: Some(previous),
+                },
+            )
+            .await
+            .expect("incremental pipeline should refresh the changed fact");
+
+        assert_eq!(
+            *affected.lock().unwrap(),
+            vec!["ent_neighbor".to_string(), "ent_same".to_string()],
+            "closure must use the old edge before invalidating it"
+        );
+        assert_eq!(output.facts.len(), 1);
+        assert_eq!(output.facts[0].value["name"], "B");
+        assert!(output.relations.is_empty(), "the old fact's edge is stale");
     }
 
     fn owned_fact(id: &str, subject: &str, path: &str) -> Fact {
@@ -1933,6 +2394,77 @@ mod tests {
                 "shared context was checked",
                 &input.snapshot.0,
             )])
+        }
+    }
+
+    struct ReusedDeclarationChangedFactExtractor;
+
+    #[async_trait]
+    impl Extractor for ReusedDeclarationChangedFactExtractor {
+        fn name(&self) -> &str {
+            "changed-fact-extractor"
+        }
+
+        fn supports(&self, _source: &SourceFile) -> bool {
+            true
+        }
+
+        fn invalidation_policy(&self) -> athanor_core::InvalidationPolicy {
+            athanor_core::InvalidationPolicy {
+                on_change: athanor_core::InvalidationScope::DependencyClosure,
+                on_add: athanor_core::InvalidationScope::DependencyClosure,
+                on_remove: athanor_core::InvalidationScope::DependencyClosure,
+            }
+        }
+
+        async fn extract(&self, input: ExtractInput) -> CoreResult<ExtractOutput> {
+            let mut fact = owned_fact("fact_env", "ent_same", "docs/shared.md");
+            fact.kind = FactKind::EnvVarUsed;
+            fact.value = json!({"name": "B"});
+            fact.snapshot = input.snapshot;
+            Ok(ExtractOutput {
+                entities: vec![declaration("ent_same", "docs/shared.md", json!({}))],
+                facts: vec![fact],
+                diagnostics: Vec::new(),
+            })
+        }
+    }
+
+    struct FactAwareCapturingLinker {
+        affected: Arc<Mutex<Vec<String>>>,
+    }
+
+    #[async_trait]
+    impl Linker for FactAwareCapturingLinker {
+        fn name(&self) -> &str {
+            "fact-aware-linker"
+        }
+
+        fn invalidation_policy(&self) -> athanor_core::InvalidationPolicy {
+            athanor_core::InvalidationPolicy {
+                on_change: athanor_core::InvalidationScope::DependencyClosure,
+                on_add: athanor_core::InvalidationScope::DependencyClosure,
+                on_remove: athanor_core::InvalidationScope::DependencyClosure,
+            }
+        }
+
+        async fn link(&self, input: LinkInput) -> CoreResult<Vec<Relation>> {
+            let fact_names = input
+                .facts
+                .iter()
+                .filter(|fact| fact.kind == FactKind::EnvVarUsed)
+                .map(|fact| fact.value["name"].as_str().unwrap_or_default())
+                .collect::<Vec<_>>();
+            assert_eq!(fact_names, vec!["B"]);
+            let mut ids = input
+                .affected
+                .entities
+                .iter()
+                .map(|entity| entity.id.0.clone())
+                .collect::<Vec<_>>();
+            ids.sort();
+            *self.affected.lock().unwrap() = ids;
+            Ok(Vec::new())
         }
     }
 

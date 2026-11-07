@@ -29,7 +29,7 @@ ath explore "index publication rollback"
 ath explore "store load" --depth 2 --json
 
 # Anchor on an exact entity or file instead of searching first
-ath explore --target "symbol://rust:crate::store::Store::load"
+ath explore --target "symbol://rust:file:12:src/store.rs:crate::store::Store::load"
 
 # Anchor on a whole file and widen the budgets
 ath explore --target "src/store.rs" --entries 10 --links 12 --paths 32

@@ -10,6 +10,7 @@ pub mod latest_pointer;
 pub mod ports;
 pub mod prepared_publication;
 pub mod read_operation;
+pub mod rust_identity;
 
 pub use atomic_publication::AtomicSnapshotPublication;
 pub use cancellation::{CancellationHandle, OperationContextCancellation};

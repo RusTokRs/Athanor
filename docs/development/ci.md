@@ -37,27 +37,20 @@ The `AppSec` and `Store Conformance` workflows publish sibling exact statuses on
 Both publishers use `if: always()`, fail closed for failed, cancelled, or unexpected skipped required
 jobs, and link the status to the exact workflow run for the same `GITHUB_SHA`.
 
-After a successful push run for `main`, `.github/workflows/verification-evidence.yml` also records:
-
-- schema `athanor.verification_evidence.v1`;
-- the exact CI `head_sha`;
-- workflow run id and URL;
-- conclusion and completion timestamp;
-- the matrix represented by that run.
+After a successful push run for `main`, `.github/workflows/verification-evidence.yml` records
+schema `athanor.verification_evidence.v1`, the exact CI `head_sha`, run id and URL, conclusion,
+completion timestamp, and matrix.
 
 The evidence is written to `docs/development/verification-evidence.json` by a dedicated
 `workflow_run` job with `contents: write`. Only successful `push` runs whose `head_branch` is `main`
 are eligible. Pull-request runs and failed or cancelled runs cannot publish evidence.
 
-The evidence-only commit changes only that JSON file. The main CI workflow ignores that path, which
-prevents an evidence commit from recursively creating another CI run. The evidence file proves the
-recorded `head_sha`; it does not automatically prove unrelated later changes.
+Evidence-only commits change just that JSON file, which CI ignores to prevent loops. Evidence
+proves only the recorded `head_sha`, never unrelated later changes.
 
-A remediation workflow may publish a validated source commit through the repository `GITHUB_TOKEN`
-without recursively starting a second CI run. That source commit remains implemented, not verified,
-until an explicit dispatch or a subsequent non-recursive evidence/documentation push runs the full
-matrix on a descendant HEAD containing the same source. A successful run for the workflow commit
-must never be attributed to the later bot-published source commit.
+A bot-published remediation commit cannot trigger CI through `GITHUB_TOKEN`. It remains
+implemented, not verified, until an explicit dispatch or later push runs the full matrix on a
+descendant HEAD; it cannot inherit the workflow commit's success.
 
 A verified claim must cite an exact SHA with either a successful `athanor/verification-matrix` status
 or a valid versioned evidence file for the same successful CI run. If neither channel is present and
@@ -72,16 +65,23 @@ The workspace MSRV is Rust `1.95`. CI, production, and release install it throug
 components and targets, retries transient installation failures, and prints the installed Rust and
 Cargo versions.
 
-Run `29701756503` for commit `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` recorded a failed
-`athanor/verification-matrix`. Quality, feature-matrix, and coverage jobs stopped at toolchain setup
-before project compilation. The previous immutable `dtolnay/rust-toolchain` commit encoded toolchain
-`1.100.0`; its action contract did not expose the workflow's `toolchain: 1.95.0` field as an input, so
-that field was ignored. The version-encoded action is no longer used by active workflows.
+Run `29701756503` for commit `9fda772436f50b55b2e4d9b11b18b7ec1e43a091` failed at setup:
+`dtolnay/rust-toolchain` encoded `1.100.0` and ignored the workflow's `toolchain: 1.95.0` field.
+The version-encoded action is no longer used by active workflows.
 
 Cargo-deny is downloaded directly as the pinned `0.20.2` release binary. Its output is concise, and a
 failed check uploads `cargo-deny-diagnostics` for retrieval instead of burying the result in a Docker
 build log. `workflow_toolchain_inventory.rs` enforces the local setup, workflow coverage, diagnostic
 artifact, and owner line budgets.
+
+`deny.toml` audits the native Linux, Windows, and macOS target graphs used by CI/releases, with
+all advisories still denied. SurrealDB 4's WebAssembly-only JWT crypto dependencies are present
+in `Cargo.lock` but are not compiled for a supported Athanor target; they have outstanding timing
+advisories with no patched RSA release. Adding WebAssembly support requires extending the graph
+and fixing those dependencies first. The native-target rationale and license review are recorded
+in [ADR-001](adr-001-dependency-advisory-strategy.md). The scheduled/manual Security Audit
+uses the same target-aware cargo-deny policy rather than a lockfile-only audit, and creates or
+updates an issue when it fails; it still enforces the unsafe-code policy.
 
 ## Workspace quality
 
@@ -113,6 +113,10 @@ cargo test -p athanor-store-jsonl --test atomic_publication --locked
 cargo test -p athanor-store-surrealdb --test atomic_publication --locked
 cargo test -p athanor-store-surrealdb --test allocation_recovery --locked
 ```
+
+CI sets `RUST_MIN_STACK=16777216` for quality, feature, coverage, and Store tests: SurrealDB 4's
+embedded engine overflows the default Rust test-thread stack. With `store-surreal`, `ath` and
+`athd` also configure 16 MiB initial and Tokio worker thread stacks.
 
 The shared contracts cover committed query isolation, prepared lifecycle, and complete-batch plus
 marker publication. Backend regressions additionally cover JSONL marker corruption/latest-pointer

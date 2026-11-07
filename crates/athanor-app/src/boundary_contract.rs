@@ -141,11 +141,25 @@ pub const NON_PUBLIC_JSON_CONTRACTS: &[NonPublicJsonContractDescriptor] = &[
         "athanor.index_state.v96",
         "IndexState",
         Persisted,
-        Current,
+        LegacyInput,
         ["schema", "snapshot", "files"]
     ),
     boundary!(
         "athanor.index_state.v96-js-ts-precision-v1",
+        "IndexState",
+        Persisted,
+        LegacyInput,
+        ["schema", "snapshot", "files"]
+    ),
+    boundary!(
+        "athanor.index_state.v97",
+        "IndexState",
+        Persisted,
+        Current,
+        ["schema", "snapshot", "files"]
+    ),
+    boundary!(
+        "athanor.index_state.v97-js-ts-precision-v1",
         "IndexState",
         Persisted,
         Current,

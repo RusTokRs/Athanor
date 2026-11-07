@@ -1,8 +1,9 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use async_trait::async_trait;
 use athanor_core::{
     CoreError, CoreResult, ExtractInput, ExtractOutput, Extractor, InvalidationPolicy, SourceFile,
+    rust_identity::{RUST_FILE_IDENTITY_VERSION, rust_file_symbol_key},
 };
 use athanor_domain::{
     Entity, EntityId, EntityKind, Fact, FactId, FactKind, LanguageCode, SourceLocation, StableKey,
@@ -79,8 +80,8 @@ impl Extractor for RustExtractor {
             &mut module_imports,
         );
 
-        // Keep module imports on traits too: canonical module entities can coalesce across files,
-        // so supertrait resolution should not depend on which module payload wins that merge.
+        // Keep module imports on traits too: they are local to this source file,
+        // and supertrait resolution must not depend on a separate module entity.
         for symbol in &mut symbols {
             let module_qn = if symbol.entity_kind == EntityKind::Module {
                 Some(symbol.qualified_name.as_str())
@@ -97,7 +98,22 @@ impl Extractor for RustExtractor {
             }
         }
 
+        // These are syntax facts about this file, not assertions that Cargo
+        // reaches it. A future graph resolver must establish a committed target
+        // root and matching Files before assigning a package/module owner.
+        let (module_declarations, opaque_module_items) =
+            collect_module_declarations(&syntax, &file_module_path);
+        let presence = parsed_symbol_presence(&syntax, &file_module_path);
         let symbols = deduplicate_symbols(symbols);
+        let local_types = symbols
+            .iter()
+            .filter(|symbol| {
+                symbol.entity_kind == EntityKind::Symbol
+                    && matches!(symbol.symbol_kind, "struct" | "enum" | "union")
+                    && symbol.spans.len() == 1
+            })
+            .map(|symbol| symbol.qualified_name.clone())
+            .collect::<HashSet<_>>();
         let mut symbol_ids = HashMap::new();
         let file_id = file_entity(&input.source, &input.snapshot.0).id;
         let mut entities = Vec::new();
@@ -110,7 +126,10 @@ impl Extractor for RustExtractor {
                 EntityKind::Function => "ent_rust_function_",
                 _ => "ent_rust_symbol_",
             };
-            let stable_key = StableKey(format!("symbol://rust:{}", symbol.qualified_name));
+            let stable_key = StableKey(rust_file_symbol_key(
+                &input.source.path,
+                &symbol.qualified_name,
+            ));
             let entity_id = EntityId(format!(
                 "{}{:016x}",
                 prefix,
@@ -120,14 +139,31 @@ impl Extractor for RustExtractor {
         }
 
         for symbol in symbols {
-            let stable_key = StableKey(format!("symbol://rust:{}", symbol.qualified_name));
+            let stable_key = StableKey(rust_file_symbol_key(
+                &input.source.path,
+                &symbol.qualified_name,
+            ));
             let entity_id = symbol_ids.get(&symbol.qualified_name).cloned().unwrap();
             let (line_start, line_end) = symbol_line_range(&symbol.spans);
             let ownership = ownership_for_file(&input.source.path);
+            let presence_unverified = if symbol.entity_kind == EntityKind::Module
+                && symbol.qualified_name == file_module_path
+            {
+                cfg_unresolved(&syntax.attrs)
+            } else {
+                presence
+                    .get(&symbol.qualified_name)
+                    .copied()
+                    .unwrap_or(true)
+                    || symbol.spans.len() != 1
+            };
 
             let mut payload = json!({
                 "symbol_kind": symbol.symbol_kind,
                 "qualified_name": symbol.qualified_name,
+                "source_file": input.source.path,
+                "rust_identity_version": RUST_FILE_IDENTITY_VERSION,
+                "rust_presence_unverified": presence_unverified,
                 "visibility": symbol.visibility,
                 "signature": symbol.signature,
                 "definitions": symbol.spans.len(),
@@ -135,6 +171,14 @@ impl Extractor for RustExtractor {
                 "calls": symbol.calls,
                 "is_test": symbol.is_test,
             });
+            if symbol.entity_kind == EntityKind::Module && symbol.qualified_name == file_module_path
+            {
+                payload["rust_module_scan"] = json!({
+                    "version": 1,
+                    "declarations": module_declarations.len(),
+                    "opaque_items": opaque_module_items,
+                });
+            }
             if !symbol.typed_bindings.is_empty() {
                 payload["typed_bindings"] = json!(symbol.typed_bindings);
                 payload["omitted_typed_bindings"] = json!(symbol.omitted_typed_bindings);
@@ -188,6 +232,7 @@ impl Extractor for RustExtractor {
                     "stable_key": stable_key.0,
                     "path": input.source.path,
                     "symbol_kind": symbol.symbol_kind,
+                    "rust_presence_unverified": presence_unverified,
                 }),
                 evidence: symbol
                     .spans
@@ -209,18 +254,139 @@ impl Extractor for RustExtractor {
             });
         }
 
+        // A method's syntactic owner is not its type: `impl other::Type` and
+        // `impl Trait for Type` cannot be attributed to a local declaration by
+        // their final identifier. Record only single-segment inherent impls
+        // with an individually parsed local type in this File.
+        let mut inherent_methods = Vec::new();
+        collect_local_inherent_methods(
+            &syntax.items,
+            &file_module_path,
+            cfg_unresolved(&syntax.attrs),
+            &mut inherent_methods,
+        );
+        for (ordinal, method) in inherent_methods.iter().enumerate() {
+            if !local_types.contains(&method.owner_qualified_name) {
+                continue;
+            }
+            let (Some(method_id), Some(owner_id)) = (
+                symbol_ids.get(&method.method_qualified_name),
+                symbol_ids.get(&method.owner_qualified_name),
+            ) else {
+                continue;
+            };
+            let (method_start, method_end) = span_lines(method.method_span);
+            let (impl_start, impl_end) = span_lines(method.impl_span);
+            facts.push(Fact {
+                id: FactId(format!(
+                    "fact_rust_inherent_method_{:016x}",
+                    stable_hash(
+                        format!(
+                            "{}\0{}\0{}\0{ordinal}",
+                            input.source.path,
+                            method.owner_qualified_name,
+                            method.method_qualified_name
+                        )
+                        .as_bytes()
+                    )
+                )),
+                kind: FactKind::Other("rust_inherent_method".to_string()),
+                subject: method_id.clone(),
+                object: Some(owner_id.clone()),
+                value: json!({
+                    "version": 1,
+                    "ordinal": ordinal,
+                    "source_file": input.source.path,
+                    "owner_qualified_name": method.owner_qualified_name,
+                    "method_qualified_name": method.method_qualified_name,
+                    "owner_stable_key": rust_file_symbol_key(
+                        &input.source.path, &method.owner_qualified_name),
+                    "method_stable_key": rust_file_symbol_key(
+                        &input.source.path, &method.method_qualified_name),
+                    "conditional": method.conditional,
+                    "form": "simple_inherent",
+                }),
+                evidence: vec![
+                    evidence_for_file(
+                        &input.source.path,
+                        self.name(),
+                        Some(method_start),
+                        Some(method_end),
+                    ),
+                    evidence_for_file(
+                        &input.source.path,
+                        self.name(),
+                        Some(impl_start),
+                        Some(impl_end),
+                    ),
+                ],
+                ownership: ownership_for_file(&input.source.path),
+                snapshot: input.snapshot.clone(),
+                extractor: self.name().to_string(),
+                confidence: 1.0,
+            });
+        }
+
+        for (index, declaration) in module_declarations.iter().enumerate() {
+            let Some(module_id) = symbol_ids.get(&declaration.qualified_name) else {
+                continue;
+            };
+            let (line_start, line_end) = span_lines(declaration.span);
+            facts.push(Fact {
+                id: FactId(format!(
+                    "fact_rust_module_decl_{:016x}",
+                    stable_hash(
+                        format!(
+                            "{}\0{}\0{}\0{index}",
+                            input.source.path, declaration.parent, declaration.name
+                        )
+                        .as_bytes()
+                    )
+                )),
+                kind: FactKind::Other("rust_module_declaration".to_string()),
+                subject: file_id.clone(),
+                object: Some(module_id.clone()),
+                value: json!({
+                    "version": 1,
+                    "ordinal": index,
+                    "parent": declaration.parent,
+                    "name": declaration.name,
+                    "qualified_name": declaration.qualified_name,
+                    "form": declaration.form,
+                    "inline_ancestors": declaration.inline_ancestors,
+                    "conditional": declaration.conditional,
+                    "custom_path": declaration.custom_path,
+                }),
+                evidence: vec![evidence_for_file(
+                    &input.source.path,
+                    self.name(),
+                    Some(line_start),
+                    Some(line_end),
+                )],
+                ownership: ownership_for_file(&input.source.path),
+                snapshot: input.snapshot.clone(),
+                extractor: self.name().to_string(),
+                confidence: 1.0,
+            });
+        }
+
         // Trait implementations are recorded as facts (not entities) so marker impls
         // without methods survive; the Rust linker turns them into `Implements` bridges.
         let mut trait_impls = Vec::new();
-        collect_trait_impls(&syntax.items, &mut trait_impls);
-        for trait_impl in trait_impls {
+        collect_trait_impls(
+            &syntax.items,
+            &file_module_path,
+            presence_unverified(&syntax.attrs),
+            &mut trait_impls,
+        );
+        for (index, trait_impl) in trait_impls.into_iter().enumerate() {
             let (line_start, line_end) = span_lines(trait_impl.span);
             facts.push(Fact {
                 id: FactId(format!(
                     "fact_trait_impl_{:016x}",
                     stable_hash(
                         format!(
-                            "{}::{}->{}",
+                            "{}\0{}->{}\0{index}",
                             input.source.path, trait_impl.self_type, trait_impl.trait_path
                         )
                         .as_bytes()
@@ -234,6 +400,9 @@ impl Extractor for RustExtractor {
                     "self_type": trait_impl.self_type,
                     "trait_name": trait_impl.trait_name,
                     "trait_path": trait_impl.trait_path,
+                    "impl_module": trait_impl.impl_module,
+                    "local_identifiers": trait_impl.local_identifiers,
+                    "conditional": trait_impl.conditional,
                 }),
                 evidence: vec![evidence_for_file(
                     &input.source.path,
@@ -307,7 +476,13 @@ impl Extractor for RustExtractor {
             facts.push(Fact {
                 id: FactId(format!(
                     "fact_env_var_used_{:016x}_{i}",
-                    stable_hash(format!("{}->{}", usage.parent_symbol, usage.name).as_bytes())
+                    stable_hash(
+                        format!(
+                            "{}\0{}->{}",
+                            input.source.path, usage.parent_symbol, usage.name
+                        )
+                        .as_bytes()
+                    )
                 )),
                 kind: FactKind::EnvVarUsed,
                 subject: parent_id,
@@ -666,9 +841,7 @@ fn path_factory_callee(func: &syn::Expr) -> Option<String> {
         .collect::<Vec<_>>();
     match segments.as_slice() {
         [name] => Some(name.clone()),
-        [type_name, method]
-            if !matches!(type_name.as_str(), "crate" | "super" | "self") =>
-        {
+        [type_name, method] if !matches!(type_name.as_str(), "crate" | "super" | "self") => {
             Some(format!("{type_name}::{method}"))
         }
         [first, rest @ ..]
@@ -1045,6 +1218,123 @@ fn expand_use_tree(prefix: &str, tree: &syn::UseTree, out: &mut Vec<String>) {
     }
 }
 
+struct RustModuleDeclaration {
+    parent: String,
+    name: String,
+    qualified_name: String,
+    form: &'static str,
+    inline_ancestors: Vec<String>,
+    conditional: bool,
+    custom_path: bool,
+    span: Span,
+}
+
+#[derive(Default)]
+struct ModuleItemVisitor {
+    modules: usize,
+    opaque_macro: bool,
+}
+
+impl<'ast> Visit<'ast> for ModuleItemVisitor {
+    fn visit_item_mod(&mut self, item: &'ast syn::ItemMod) {
+        self.modules += 1;
+        syn::visit::visit_item_mod(self, item);
+    }
+
+    fn visit_item_macro(&mut self, item: &'ast syn::ItemMacro) {
+        self.opaque_macro = true;
+        syn::visit::visit_item_macro(self, item);
+    }
+}
+
+fn collect_module_declarations(
+    syntax: &syn::File,
+    file_module: &str,
+) -> (Vec<RustModuleDeclaration>, bool) {
+    fn visit_items(
+        items: &[Item],
+        parent: &str,
+        ancestors: &[String],
+        conditional_parent: bool,
+        custom_path_parent: bool,
+        declarations: &mut Vec<RustModuleDeclaration>,
+        opaque_attributes: &mut bool,
+    ) {
+        for item in items {
+            let Item::Mod(module) = item else {
+                continue;
+            };
+            let name = module.ident.to_string();
+            let mut conditional = conditional_parent;
+            let mut custom_path = custom_path_parent;
+            for attribute in &module.attrs {
+                let path = attribute.path();
+                if path.is_ident("cfg") || path.is_ident("cfg_attr") {
+                    conditional = true;
+                } else if path.is_ident("path") {
+                    custom_path = true;
+                } else if !matches!(
+                    path.get_ident().map(|ident| ident.to_string()).as_deref(),
+                    Some("doc" | "allow" | "warn" | "deny" | "forbid" | "macro_use")
+                ) {
+                    // A procedural attribute can change or replace the module.
+                    conditional = true;
+                    *opaque_attributes = true;
+                }
+            }
+            let qualified_name = format!("{parent}::{name}");
+            declarations.push(RustModuleDeclaration {
+                parent: parent.to_string(),
+                name: name.clone(),
+                qualified_name: qualified_name.clone(),
+                form: if module.content.is_some() {
+                    "inline"
+                } else {
+                    "external"
+                },
+                inline_ancestors: ancestors.to_vec(),
+                conditional,
+                custom_path,
+                span: module.span(),
+            });
+            if let Some((_, children)) = &module.content {
+                let mut next_ancestors = ancestors.to_vec();
+                next_ancestors.push(name);
+                visit_items(
+                    children,
+                    &qualified_name,
+                    &next_ancestors,
+                    conditional,
+                    custom_path,
+                    declarations,
+                    opaque_attributes,
+                );
+            }
+        }
+    }
+
+    let mut declarations = Vec::new();
+    // A crate-level cfg can disable the entire file, including every
+    // otherwise unconditional declaration below it. Preserve that uncertainty
+    // on each declaration as well as on the file's scan marker, so the planner
+    // can verify the evidence without treating a child as reachable.
+    let crate_conditional = cfg_unresolved(&syntax.attrs);
+    let mut opaque_attributes = crate_conditional;
+    visit_items(
+        &syntax.items,
+        file_module,
+        &[],
+        crate_conditional,
+        false,
+        &mut declarations,
+        &mut opaque_attributes,
+    );
+    let mut visitor = ModuleItemVisitor::default();
+    visitor.visit_file(syntax);
+    let opaque = opaque_attributes || visitor.opaque_macro || visitor.modules != declarations.len();
+    (declarations, opaque)
+}
+
 fn collect_items(
     items: &[Item],
     parent: &str,
@@ -1064,8 +1354,7 @@ fn collect_items(
                 };
                 let (typed_bindings, omitted_typed_bindings, call_bindings, omitted_call_bindings) =
                     typed_bindings(Some(&item.sig), Some(&item.block), None);
-                let (return_type, return_kind, try_yield) =
-                    recorded_return(&item.sig, None, None);
+                let (return_type, return_kind, try_yield) = recorded_return(&item.sig, None, None);
                 symbols.push(RustSymbol {
                     name: item.sig.ident.to_string(),
                     qualified_name: qualify(parent, &item.sig.ident.to_string()),
@@ -1306,17 +1595,215 @@ fn trait_supertraits(item: &syn::ItemTrait) -> Vec<String> {
         .collect()
 }
 
+fn cfg_unresolved(attributes: &[syn::Attribute]) -> bool {
+    attributes
+        .iter()
+        .any(|attribute| attribute.path().is_ident("cfg") || attribute.path().is_ident("cfg_attr"))
+}
+
+/// The source parser proves one syntactic item, not that a conditional or
+/// procedural attribute leaves that item present in the compiled crate.
+/// Unknown attribute paths fail closed. Test/bench attributes are test-harness
+/// gated, not unconditional definitions. Derive macros preserve their input
+/// item; their generated *additional* items are never projected by this scanner.
+fn presence_unverified(attributes: &[syn::Attribute]) -> bool {
+    attributes.iter().any(|attribute| {
+        let Some(name) = attribute.path().get_ident() else {
+            return true;
+        };
+        !matches!(
+            name.to_string().as_str(),
+            "allow"
+                | "warn"
+                | "deny"
+                | "forbid"
+                | "doc"
+                | "derive"
+                | "repr"
+                | "inline"
+                | "cold"
+                | "deprecated"
+                | "must_use"
+                | "non_exhaustive"
+                | "macro_use"
+                | "track_caller"
+        )
+    })
+}
+
+/// Only a one-segment inherent self type can be tied to a same-module local
+/// declaration without resolving imports or external paths.
+fn simple_local_self_type(ty: &Type) -> Option<&syn::Ident> {
+    let Type::Path(path) = ty else {
+        return None;
+    };
+    if path.qself.is_some() || path.path.leading_colon.is_some() || path.path.segments.len() != 1 {
+        return None;
+    }
+    let segment = &path.path.segments[0];
+    matches!(
+        segment.arguments,
+        syn::PathArguments::None | syn::PathArguments::AngleBracketed(_)
+    )
+    .then_some(&segment.ident)
+}
+
+struct InherentMethodRecord {
+    owner_qualified_name: String,
+    method_qualified_name: String,
+    conditional: bool,
+    impl_span: Span,
+    method_span: Span,
+}
+
+/// An explicit same-file impl syntax anchor; no imported or qualified self type
+/// is guessed into a local owner, and trait implementations stay out of scope.
+fn collect_local_inherent_methods(
+    items: &[Item],
+    parent: &str,
+    inherited_uncertainty: bool,
+    out: &mut Vec<InherentMethodRecord>,
+) {
+    for item in items {
+        match item {
+            Item::Mod(module) => {
+                if let Some((_, children)) = &module.content {
+                    collect_local_inherent_methods(
+                        children,
+                        &qualify(parent, &module.ident.to_string()),
+                        inherited_uncertainty || presence_unverified(&module.attrs),
+                        out,
+                    );
+                }
+            }
+            Item::Impl(item) if item.trait_.is_none() => {
+                let Some(name) = simple_local_self_type(&item.self_ty) else {
+                    continue;
+                };
+                let owner = qualify(parent, &name.to_string());
+                let impl_uncertain = inherited_uncertainty || presence_unverified(&item.attrs);
+                for method in &item.items {
+                    if let ImplItem::Fn(method) = method {
+                        out.push(InherentMethodRecord {
+                            owner_qualified_name: owner.clone(),
+                            method_qualified_name: qualify(&owner, &method.sig.ident.to_string()),
+                            conditional: impl_uncertain || presence_unverified(&method.attrs),
+                            impl_span: item.span(),
+                            method_span: method.sig.span(),
+                        });
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Presence hints for direct items and their explicitly declared methods.
+/// A false method hint is not ownership proof: a separate same-file impl fact
+/// and independently proven local type are required by the planner. Qualified
+/// self types and trait-implementation methods have no hint and fail closed.
+fn parsed_symbol_presence(syntax: &syn::File, root: &str) -> HashMap<String, bool> {
+    fn record(hints: &mut HashMap<String, bool>, name: String, uncertain: bool) {
+        hints
+            .entry(name)
+            .and_modify(|previous| *previous |= uncertain)
+            .or_insert(uncertain);
+    }
+
+    fn visit(
+        items: &[Item],
+        parent: &str,
+        parent_unverified: bool,
+        hints: &mut HashMap<String, bool>,
+    ) {
+        for item in items {
+            if let Item::Impl(implementation) = item {
+                if implementation.trait_.is_none()
+                    && let Some(owner_name) = simple_local_self_type(&implementation.self_ty)
+                {
+                    let owner = qualify(parent, &owner_name.to_string());
+                    let impl_uncertain =
+                        parent_unverified || presence_unverified(&implementation.attrs);
+                    for method in &implementation.items {
+                        if let ImplItem::Fn(method) = method {
+                            record(
+                                hints,
+                                qualify(&owner, &method.sig.ident.to_string()),
+                                impl_uncertain || presence_unverified(&method.attrs),
+                            );
+                        }
+                    }
+                }
+                continue;
+            }
+            let declaration: Option<(&syn::Ident, &[syn::Attribute])> = match item {
+                Item::Fn(item) => Some((&item.sig.ident, &item.attrs)),
+                Item::Mod(item) => Some((&item.ident, &item.attrs)),
+                Item::Struct(item) => Some((&item.ident, &item.attrs)),
+                Item::Enum(item) => Some((&item.ident, &item.attrs)),
+                Item::Trait(item) => Some((&item.ident, &item.attrs)),
+                Item::Union(item) => Some((&item.ident, &item.attrs)),
+                Item::Type(item) => Some((&item.ident, &item.attrs)),
+                Item::Const(item) => Some((&item.ident, &item.attrs)),
+                Item::Static(item) => Some((&item.ident, &item.attrs)),
+                _ => None,
+            };
+            let Some((ident, attributes)) = declaration else {
+                continue;
+            };
+            let qualified_name = format!("{parent}::{ident}");
+            let uncertain = parent_unverified || presence_unverified(attributes);
+            record(hints, qualified_name.clone(), uncertain);
+            if let Item::Trait(item) = item {
+                for method in &item.items {
+                    if let syn::TraitItem::Fn(method) = method {
+                        record(
+                            hints,
+                            format!("{qualified_name}::{}", method.sig.ident),
+                            uncertain || presence_unverified(&method.attrs),
+                        );
+                    }
+                }
+            }
+            if let Item::Mod(item) = item
+                && let Some((_, children)) = &item.content
+            {
+                visit(children, &qualified_name, uncertain, hints);
+            }
+        }
+    }
+
+    let mut hints = HashMap::new();
+    visit(
+        &syntax.items,
+        root,
+        cfg_unresolved(&syntax.attrs),
+        &mut hints,
+    );
+    hints
+}
+
 #[derive(Debug)]
 struct TraitImplRecord {
     self_type: String,
     trait_name: String,
     trait_path: String,
+    impl_module: String,
+    local_identifiers: bool,
+    conditional: bool,
     span: Span,
 }
 
-/// Collect `impl Trait for Type` blocks (including nested modules) so trait
-/// implementations become `Implements` bridges even when the impl has no methods.
-fn collect_trait_impls(items: &[Item], out: &mut Vec<TraitImplRecord>) {
+/// Record `impl Trait for Type` syntax, including nested modules, but only a
+/// single-segment trait and self type can be linked to declarations in the
+/// same inline module without guessing what an imported/qualified path names.
+fn collect_trait_impls(
+    items: &[Item],
+    module: &str,
+    conditional_parent: bool,
+    out: &mut Vec<TraitImplRecord>,
+) {
     for item in items {
         match item {
             Item::Impl(item) => {
@@ -1333,12 +1820,25 @@ fn collect_trait_impls(items: &[Item], out: &mut Vec<TraitImplRecord>) {
                     self_type,
                     trait_name: trait_segment.ident.to_string(),
                     trait_path: path_to_string(path),
+                    impl_module: module.to_string(),
+                    local_identifiers: simple_local_self_type(&item.self_ty).is_some_and(|ident| {
+                        !item.generics.params.iter().any(|param| {
+                            matches!(param, syn::GenericParam::Type(param) if &param.ident == ident)
+                        })
+                    }) && path.leading_colon.is_none()
+                        && path.segments.len() == 1,
+                    conditional: conditional_parent || presence_unverified(&item.attrs),
                     span: item.span(),
                 });
             }
             Item::Mod(item) => {
                 if let Some((_, items)) = &item.content {
-                    collect_trait_impls(items, out);
+                    collect_trait_impls(
+                        items,
+                        &qualify(module, &item.ident.to_string()),
+                        conditional_parent || presence_unverified(&item.attrs),
+                        out,
+                    );
                 }
             }
             _ => {}
@@ -1693,28 +2193,199 @@ pub async fn login() {}
             .unwrap();
 
         assert_eq!(output.entities.len(), 4); // Session, refresh, login, plus root module auth
-        assert_eq!(output.facts.len(), 4);
+        assert_eq!(output.facts.len(), 5); // Four definitions and the inherent-method owner fact
         assert!(output.entities.iter().any(|entity| {
-            entity.stable_key.0 == "symbol://rust:crate::auth::Session"
+            entity.stable_key.0 == rust_file_symbol_key("src/auth.rs", "crate::auth::Session")
                 && entity.kind == EntityKind::Symbol
         }));
         assert!(output.entities.iter().any(|entity| {
-            entity.stable_key.0 == "symbol://rust:crate::auth::Session::refresh"
+            entity.stable_key.0
+                == rust_file_symbol_key("src/auth.rs", "crate::auth::Session::refresh")
                 && entity.kind == EntityKind::Function
         }));
         assert!(output.entities.iter().any(|entity| {
-            entity.stable_key.0 == "symbol://rust:crate::auth::login"
+            entity.stable_key.0 == rust_file_symbol_key("src/auth.rs", "crate::auth::login")
                 && entity.source.as_ref().unwrap().line_start == Some(8)
         }));
-        assert!(output.facts.iter().all(|fact| {
-            fact.kind == FactKind::SymbolDefined
-                && !fact.evidence.is_empty()
-                && !fact.ownership.is_empty()
-                && fact
-                    .object
-                    .as_ref()
-                    .is_some_and(|id| id.0.starts_with("ent_file_"))
-        }));
+        assert!(
+            output
+                .facts
+                .iter()
+                .filter(|fact| fact.kind == FactKind::SymbolDefined)
+                .all(|fact| {
+                    !fact.evidence.is_empty()
+                        && !fact.ownership.is_empty()
+                        && fact
+                            .object
+                            .as_ref()
+                            .is_some_and(|id| id.0.starts_with("ent_file_"))
+                })
+        );
+        assert_eq!(
+            output
+                .facts
+                .iter()
+                .filter(|fact| { fact.kind == FactKind::Other("rust_inherent_method".to_string()) })
+                .count(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn records_external_module_declarations_without_guessing_their_files() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub mod api;
+mod inline { mod detail; }
+#[path = "custom.rs"] mod special;
+#[cfg(test)] mod conditional;
+"#,
+            ))
+            .await
+            .unwrap();
+        let root = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.kind == EntityKind::Module && entity.payload["qualified_name"] == "crate"
+            })
+            .unwrap();
+        assert_eq!(root.payload["rust_module_scan"]["declarations"], 5);
+        assert_eq!(root.payload["rust_module_scan"]["opaque_items"], false);
+        let declarations = output
+            .facts
+            .iter()
+            .filter(|fact| fact.kind == FactKind::Other("rust_module_declaration".to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(declarations.len(), 5);
+        let nested = declarations
+            .iter()
+            .find(|fact| fact.value["name"] == "detail")
+            .unwrap();
+        assert_eq!(nested.value["inline_ancestors"], json!(["inline"]));
+        let custom = declarations
+            .iter()
+            .find(|fact| fact.value["name"] == "special")
+            .unwrap();
+        assert_eq!(custom.value["custom_path"], true);
+        let conditional = declarations
+            .iter()
+            .find(|fact| fact.value["name"] == "conditional")
+            .unwrap();
+        assert_eq!(conditional.value["conditional"], true);
+        assert!(declarations.iter().all(|fact| fact.object.is_some()));
+    }
+
+    #[tokio::test]
+    async fn records_direct_and_method_presence_with_inherited_cfg() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+mod live {
+    pub fn plain() {}
+    #[test] pub fn only_harness() {}
+    #[cfg(test)] pub fn conditional() {}
+    #[route("/")] pub fn transformed() {}
+    #[derive(Debug)] pub struct Record;
+    impl Record { pub fn method(&self) {} }
+    pub trait Reader {
+        fn read(&self);
+        #[cfg(test)] fn optional(&self);
+    }
+}
+#[cfg(feature = "x")]
+mod hidden { pub fn nested() {} }
+"#,
+            ))
+            .await
+            .unwrap();
+        for (name, uncertain) in [
+            ("plain", false),
+            ("only_harness", true),
+            ("conditional", true),
+            ("transformed", true),
+            ("Record", false),
+            ("method", false),
+            ("read", false),
+            ("optional", true),
+            ("nested", true),
+        ] {
+            let entity = output
+                .entities
+                .iter()
+                .find(|entity| entity.name == name)
+                .unwrap();
+            assert_eq!(
+                entity.payload["rust_presence_unverified"], uncertain,
+                "{name}"
+            );
+            let fact = output
+                .facts
+                .iter()
+                .find(|fact| {
+                    fact.subject == entity.id && fact.value["stable_key"] == entity.stable_key.0
+                })
+                .unwrap();
+            assert_eq!(fact.value["rust_presence_unverified"], uncertain, "{name}");
+        }
+        let owner = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "Record")
+            .unwrap();
+        let method = output
+            .entities
+            .iter()
+            .find(|entity| entity.name == "method")
+            .unwrap();
+        let association = output
+            .facts
+            .iter()
+            .find(|fact| fact.kind == FactKind::Other("rust_inherent_method".to_string()))
+            .unwrap();
+        assert_eq!(association.subject, method.id);
+        assert_eq!(association.object.as_ref(), Some(&owner.id));
+        assert_eq!(association.value["conditional"], false);
+        assert_eq!(association.evidence.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn module_scan_keeps_cfg_alternatives_distinct_and_marks_macro_expansion_opaque() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+#[cfg(unix)] mod platform;
+#[cfg(windows)] mod platform;
+include!("more_modules.rs");
+"#,
+            ))
+            .await
+            .unwrap();
+        let root = output
+            .entities
+            .iter()
+            .find(|entity| {
+                entity.kind == EntityKind::Module && entity.payload["qualified_name"] == "crate"
+            })
+            .unwrap();
+        assert_eq!(root.payload["rust_module_scan"]["declarations"], 2);
+        assert_eq!(root.payload["rust_module_scan"]["opaque_items"], true);
+        let declarations = output
+            .facts
+            .iter()
+            .filter(|fact| fact.kind == FactKind::Other("rust_module_declaration".to_string()))
+            .collect::<Vec<_>>();
+        assert_eq!(declarations.len(), 2);
+        assert_ne!(declarations[0].id, declarations[1].id);
+        assert!(
+            declarations
+                .iter()
+                .all(|fact| fact.value["conditional"] == true)
+        );
     }
 
     #[tokio::test]
@@ -1740,10 +2411,12 @@ pub mod auth {
             .iter()
             .map(|entity| entity.stable_key.0.as_str())
             .collect::<Vec<_>>();
-        assert!(keys.contains(&"symbol://rust:crate"));
-        assert!(keys.contains(&"symbol://rust:crate::auth"));
-        assert!(keys.contains(&"symbol://rust:crate::auth::Login"));
-        assert!(keys.contains(&"symbol://rust:crate::auth::Service::Login::login"));
+        assert!(keys.contains(&rust_file_symbol_key("src/lib.rs", "crate").as_str()));
+        assert!(keys.contains(&rust_file_symbol_key("src/lib.rs", "crate::auth").as_str()));
+        assert!(keys.contains(&rust_file_symbol_key("src/lib.rs", "crate::auth::Login").as_str()));
+        assert!(keys.contains(
+            &rust_file_symbol_key("src/lib.rs", "crate::auth::Service::Login::login").as_str()
+        ));
     }
 
     #[tokio::test]
@@ -1765,7 +2438,9 @@ pub trait BufferedReader: Reader {}
         let buffered = output
             .entities
             .iter()
-            .find(|entity| entity.stable_key.0 == "symbol://rust:crate::BufferedReader")
+            .find(|entity| {
+                entity.stable_key.0 == rust_file_symbol_key("src/lib.rs", "crate::BufferedReader")
+            })
             .expect("trait declaration must be emitted");
         assert_eq!(
             buffered.payload["supertraits"],
@@ -1814,13 +2489,18 @@ pub mod nested {
             fact.value["self_type"] == "Session"
                 && fact.value["trait_name"] == "Login"
                 && fact.value["trait_path"] == "Login"
+                && fact.value["impl_module"] == "crate::auth"
+                && fact.value["local_identifiers"] == true
         }));
         // Marker impls have no methods, so the fact is the only anchor.
         assert!(impls.iter().any(|fact| {
             fact.value["self_type"] == "Session" && fact.value["trait_name"] == "Marker"
         }));
         assert!(impls.iter().any(|fact| {
-            fact.value["self_type"] == "Token" && fact.value["trait_name"] == "Marker"
+            fact.value["self_type"] == "Token"
+                && fact.value["trait_name"] == "Marker"
+                && fact.value["impl_module"] == "crate::auth::nested"
+                && fact.value["local_identifiers"] == false
         }));
         assert!(impls.iter().all(|fact| {
             !fact.evidence.is_empty()
@@ -1877,6 +2557,76 @@ fn platform() {}
             .find(|e| e.name == "platform")
             .unwrap();
         assert_eq!(symbol.payload["definitions"], 2);
+    }
+
+    #[tokio::test]
+    async fn cfg_trait_impl_facts_do_not_share_an_identity() {
+        let output = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                r#"
+pub trait Reader {}
+pub struct Record;
+#[cfg(unix)] impl Reader for Record {}
+#[cfg(windows)] impl Reader for Record {}
+"#,
+            ))
+            .await
+            .unwrap();
+        let facts = output
+            .facts
+            .iter()
+            .filter(|fact| fact.value["symbol_kind"] == "trait_impl")
+            .collect::<Vec<_>>();
+        assert_eq!(facts.len(), 2);
+        assert_ne!(facts[0].id, facts[1].id);
+        assert!(facts.iter().all(|fact| fact.value["conditional"] == true));
+    }
+
+    #[tokio::test]
+    async fn crate_and_procedural_attributes_make_impl_presence_unverified() {
+        let crate_conditional = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                "#![cfg(feature = \"x\")] trait T {} struct S; impl T for S {}",
+            ))
+            .await
+            .unwrap();
+        let fact = crate_conditional
+            .facts
+            .iter()
+            .find(|fact| fact.value["symbol_kind"] == "trait_impl")
+            .unwrap();
+        assert_eq!(fact.value["conditional"], true);
+        assert_eq!(fact.value["local_identifiers"], true);
+
+        let procedural = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                "trait T {} struct S; #[replace_impl] impl T for S {}",
+            ))
+            .await
+            .unwrap();
+        let fact = procedural
+            .facts
+            .iter()
+            .find(|fact| fact.value["symbol_kind"] == "trait_impl")
+            .unwrap();
+        assert_eq!(fact.value["conditional"], true);
+
+        let generic_self = RustExtractor
+            .extract(input(
+                "src/lib.rs",
+                "trait Reader {} struct T; impl<T> Reader for T {}",
+            ))
+            .await
+            .unwrap();
+        let fact = generic_self
+            .facts
+            .iter()
+            .find(|fact| fact.value["symbol_kind"] == "trait_impl")
+            .unwrap();
+        assert_eq!(fact.value["local_identifiers"], false);
     }
 
     #[tokio::test]
@@ -2330,8 +3080,7 @@ pub fn free() -> Self { loop {} }
             .expect("fallible");
         assert_eq!(fallible.payload["try_yield"], true);
         assert!(output.entities.iter().any(|entity| {
-            entity.name == "fresh"
-                && entity.payload.get("return_type").is_none()
+            entity.name == "fresh" && entity.payload.get("return_type").is_none()
         }));
         let free = output
             .entities
@@ -2772,18 +3521,17 @@ pub fn create_repo() -> Store { Store }
             "a nested associated factory init must be recorded, got {rows:?}"
         );
         assert!(
-            rows
-                .iter()
+            rows.iter()
                 .any(|row| row == "nested_member:svc.create().get"),
             "a nested member factory init must be recorded, got {rows:?}"
         );
         assert!(
-            rows.iter().any(|row| row == "nested_self:self.create().get"),
+            rows.iter()
+                .any(|row| row == "nested_self:self.create().get"),
             "a nested self factory init must be recorded, got {rows:?}"
         );
         assert!(
-            rows
-                .iter()
+            rows.iter()
                 .any(|row| row == "nested_path:crate::create_repo().get"),
             "a nested crate-path factory init must be recorded, got {rows:?}"
         );
@@ -2792,7 +3540,9 @@ pub fn create_repo() -> Store { Store }
             "a third-hop init must not be recorded, got {rows:?}"
         );
         assert!(
-            !rows.iter().any(|row| row.starts_with("turbo:") || row.starts_with("abs:")),
+            !rows
+                .iter()
+                .any(|row| row.starts_with("turbo:") || row.starts_with("abs:")),
             "a turbofish or leading-colon init must not be recorded, got {rows:?}"
         );
         assert!(
@@ -2800,7 +3550,8 @@ pub fn create_repo() -> Store { Store }
             "a try factory init must be recorded, got {rows:?}"
         );
         assert!(
-            rows.iter().any(|row| row == "tried_nested:create_repo().get"),
+            rows.iter()
+                .any(|row| row == "tried_nested:create_repo().get"),
             "a try nested factory init must be recorded, got {rows:?}"
         );
         assert!(
@@ -2808,8 +3559,7 @@ pub fn create_repo() -> Store { Store }
             "an inner-try nested factory init must keep the ?, got {rows:?}"
         );
         assert!(
-            rows.iter()
-                .any(|row| row == "middle_new:Store::new()?.get"),
+            rows.iter().any(|row| row == "middle_new:Store::new()?.get"),
             "an inner-try nested associated factory init must keep the ?, got {rows:?}"
         );
         assert!(
@@ -2891,7 +3641,9 @@ pub fn run(svc: App) {
             .map(|call| call["receiver"].as_str().unwrap_or_default().to_string())
             .collect::<Vec<_>>();
         assert!(
-            receivers.iter().any(|receiver| receiver == "create_repo()?"),
+            receivers
+                .iter()
+                .any(|receiver| receiver == "create_repo()?"),
             "a try factory result must keep the ?, got {receivers:?}"
         );
         assert!(
@@ -3113,8 +3865,7 @@ pub fn create_repo() -> Store { Store }
             "an inner unwrap hop must record as try, got {rows:?}"
         );
         assert!(
-            rows.iter()
-                .any(|row| row == "inner_new:Store::new()?.get"),
+            rows.iter().any(|row| row == "inner_new:Store::new()?.get"),
             "an inner unwrap associated hop must record as try, got {rows:?}"
         );
         assert!(
@@ -3212,12 +3963,16 @@ pub trait Reader {
             .iter()
             .map(|entity| entity.stable_key.0.as_str())
             .collect::<Vec<_>>();
-        assert!(keys.contains(&"symbol://rust:crate::Reader::read"));
-        assert!(keys.contains(&"symbol://rust:crate::Reader::reset"));
+        assert!(keys.contains(&rust_file_symbol_key("src/lib.rs", "crate::Reader::read").as_str()));
+        assert!(
+            keys.contains(&rust_file_symbol_key("src/lib.rs", "crate::Reader::reset").as_str())
+        );
         let reset = output
             .entities
             .iter()
-            .find(|entity| entity.stable_key.0 == "symbol://rust:crate::Reader::reset")
+            .find(|entity| {
+                entity.stable_key.0 == rust_file_symbol_key("src/lib.rs", "crate::Reader::reset")
+            })
             .expect("reset must be extracted");
         assert_eq!(reset.payload["symbol_kind"], "trait_method");
         assert_eq!(reset.kind, EntityKind::Function);
@@ -3243,6 +3998,53 @@ pub trait Reader {
             .expect("run must be extracted");
         assert_eq!(run.payload["typed_bindings"].as_array().unwrap().len(), 64);
         assert_eq!(run.payload["omitted_typed_bindings"], 6);
+    }
+
+    #[tokio::test]
+    async fn same_named_symbols_and_usage_facts_in_distinct_files_do_not_coalesce() {
+        let source = "pub fn run() { let _ = std::env::var(\"TOKEN\"); }";
+        let left_path = "crates/left/shared/src/lib.rs";
+        let right_path = "crates/right/shared/src/lib.rs";
+        let left = RustExtractor
+            .extract(input(left_path, source))
+            .await
+            .unwrap();
+        let right = RustExtractor
+            .extract(input(right_path, source))
+            .await
+            .unwrap();
+        let left_run = left
+            .entities
+            .iter()
+            .find(|entity| entity.name == "run")
+            .unwrap();
+        let right_run = right
+            .entities
+            .iter()
+            .find(|entity| entity.name == "run")
+            .unwrap();
+        assert_eq!(
+            left_run.payload["qualified_name"],
+            right_run.payload["qualified_name"]
+        );
+        assert_eq!(
+            left_run.stable_key.0,
+            rust_file_symbol_key(left_path, "shared::run")
+        );
+        assert_ne!(left_run.stable_key, right_run.stable_key);
+        assert_ne!(left_run.id, right_run.id);
+        assert!(athanor_core::rust_identity::rust_file_symbol_identity(left_run).is_some());
+        assert!(athanor_core::rust_identity::rust_file_symbol_identity(right_run).is_some());
+        for fact in &left.facts {
+            assert!(right.facts.iter().all(|other| fact.id != other.id));
+        }
+        // Environment variables themselves retain their global env:// identity;
+        // the per-file usage fact and Rust parent cannot be merged.
+        assert!(
+            left.entities
+                .iter()
+                .any(|entity| entity.stable_key.0 == "env://TOKEN")
+        );
     }
 
     fn input(path: &str, content: &str) -> ExtractInput {

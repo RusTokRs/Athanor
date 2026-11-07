@@ -17,16 +17,18 @@ use athanor_app::{
     DocumentationModuleCurrentInspection, DocumentationModuleManifestInspection,
     DocumentationModuleOperationOptions, DocumentationModulePublicationReport,
     DocumentationModulePublicationStatus, DocumentationModuleValidationInspection,
-    DocumentationProfile, OperationsDocsCheckOptions, OperationsDocsCheckReport,
-    VersionedDocsProposeFixReport, check_docs_with_composition,
-    check_operations_docs_with_composition, docs_apply_patch_with_composition,
-    docs_drift_with_composition, generate_documentation_api_with_composition_cancellable,
+    DocumentationProfile, DocumentationRepositoryPlanOptions, DocumentationRepositoryPlanRequest,
+    OperationsDocsCheckOptions, OperationsDocsCheckReport, VersionedDocsProposeFixReport,
+    check_docs_with_composition, check_operations_docs_with_composition,
+    docs_apply_patch_with_composition, docs_drift_with_composition,
+    generate_documentation_api_with_composition_cancellable,
     generate_documentation_architecture_with_composition_cancellable,
     generate_documentation_module_with_composition_cancellable, inspect_documentation_api_current,
     inspect_documentation_api_manifest, inspect_documentation_api_validation,
     inspect_documentation_architecture_current, inspect_documentation_architecture_manifest,
     inspect_documentation_architecture_validation, inspect_documentation_module_current,
     inspect_documentation_module_manifest, inspect_documentation_module_validation,
+    plan_documentation_repository_with_composition,
 };
 use athanor_transport_http::{BoundDocumentationServer, DocumentationServeOptions};
 use clap::error::ErrorKind;
@@ -56,6 +58,17 @@ enum RootCommand {
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
+    /// Plan package-local documentation from an exact JSONL snapshot; never write files.
+    PlanRepository {
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        #[arg(long)]
+        snapshot: String,
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        #[arg(long)]
+        json: bool,
+    },
     /// Read published documentation and bounded knowledge queries in a local browser (no LLM).
     Serve {
         /// Existing project root. Serving does not index sources or publish documentation.
@@ -306,6 +319,124 @@ pub(crate) fn parse(args: &[String]) -> Result<Option<Command>> {
 pub(crate) async fn run(command: Command) -> Result<()> {
     let composition = athanor_runtime_defaults::production();
     match command {
+        Command::PlanRepository {
+            path,
+            snapshot,
+            limit,
+            json,
+        } => {
+            let report = plan_documentation_repository_with_composition(
+                DocumentationRepositoryPlanOptions {
+                    root: path,
+                    request: DocumentationRepositoryPlanRequest::new(snapshot, limit),
+                },
+                &composition,
+            )
+            .await?;
+            if json {
+                println!("{}", serde_json::to_string_pretty(&report)?);
+            } else {
+                println!(
+                    "Repository documentation plan for snapshot {} (read-only)",
+                    report.snapshot
+                );
+                println!(
+                    "Cargo packages: {}, targets: {}, existing documentation inputs: {}, Cargo-root/module File claims: {}, individually verified Rust symbols: {}, Rust files: {}, issues: {}",
+                    report.totals.packages,
+                    report.totals.targets,
+                    report.totals.sources,
+                    report.totals.modules,
+                    report.totals.rust_symbols,
+                    report.totals.rust_files,
+                    report.totals.issues
+                );
+                for package in &report.packages {
+                    println!(
+                        "package {} [{}] {} -> {}",
+                        package.name,
+                        package.membership,
+                        package.manifest,
+                        package.index_candidate.as_deref().unwrap_or("unresolved")
+                    );
+                }
+                for target in &report.targets {
+                    println!(
+                        "target {}:{} {} -> {} (output: {}, symbols: {})",
+                        target.kind,
+                        target.name,
+                        target.root,
+                        target.output_candidate.as_deref().unwrap_or("unresolved"),
+                        target.output_blocker.as_deref().unwrap_or("proposed only"),
+                        target.symbol_omission.as_deref().unwrap_or("none")
+                    );
+                }
+                for source in &report.sources {
+                    println!(
+                        "input {} [{}] {} (owner: {})",
+                        source.kind,
+                        source.scope,
+                        source.path,
+                        source.owner_manifest.as_deref().unwrap_or("unresolved")
+                    );
+                }
+                for module in &report.modules {
+                    println!(
+                        "module {} {} [{}] {} (source: {}, fact: {}, syntax: {})",
+                        module.target,
+                        module.module,
+                        module.manifest,
+                        module.path,
+                        module.declared_in.as_deref().unwrap_or("Cargo target root"),
+                        module
+                            .declaration_fact
+                            .as_deref()
+                            .unwrap_or("Cargo target evidence"),
+                        module.syntax
+                    );
+                }
+                for symbol in &report.rust_symbols {
+                    println!(
+                        "rust symbol {} [{}] {}:{} (source: {}:{}, definition: {}, owner: {}, impl: {})",
+                        symbol.qualified_name,
+                        symbol.symbol_kind,
+                        symbol.manifest,
+                        symbol.target,
+                        symbol.source_file,
+                        symbol.line_start,
+                        symbol.definition_fact,
+                        symbol.owner_symbol.as_deref().unwrap_or("none"),
+                        symbol.association_fact.as_deref().unwrap_or("none")
+                    );
+                }
+                for file in &report.rust_files {
+                    println!(
+                        "rust file {} (package: {}, target: {}, module: {}, omission: {})",
+                        file.path,
+                        file.owner_manifest.as_deref().unwrap_or("unresolved"),
+                        file.target.as_deref().unwrap_or("unverified"),
+                        file.module.as_deref().unwrap_or("unverified"),
+                        file.omission.as_deref().unwrap_or("none")
+                    );
+                }
+                for issue in &report.issues {
+                    println!("issue {} {}: {}", issue.kind, issue.path, issue.detail);
+                }
+                println!(
+                    "Omitted by limit {}: {} packages, {} targets, {} inputs, {} Rust modules, {} Rust symbols, {} Rust files, {} issues",
+                    report.limit,
+                    report.omitted.packages,
+                    report.omitted.targets,
+                    report.omitted.sources,
+                    report.omitted.modules,
+                    report.omitted.rust_symbols,
+                    report.omitted.rust_files,
+                    report.omitted.issues
+                );
+                println!(
+                    "Paths are snapshot proposals, not permission to write. No files changed."
+                );
+            }
+        }
         Command::Serve {
             path,
             bind,
@@ -969,6 +1100,26 @@ fn render_operations(report: &OperationsDocsCheckReport, json: bool) -> Result<(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_exact_read_only_repository_plan_and_requires_snapshot() {
+        let command = parse(&[
+            "docs".to_string(),
+            "plan-repository".to_string(),
+            "project".to_string(),
+            "--snapshot".to_string(),
+            "snap-exact".to_string(),
+            "--limit".to_string(),
+            "12".to_string(),
+            "--json".to_string(),
+        ])
+        .unwrap()
+        .expect("repository plan command");
+        assert!(matches!(command, Command::PlanRepository {
+            snapshot, limit: 12, json: true, ..
+        } if snapshot == "snap-exact"));
+        assert!(parse(&["docs".to_string(), "plan-repository".to_string()]).is_err());
+    }
 
     #[test]
     fn parses_exact_architecture_generation_with_limits_and_json() {

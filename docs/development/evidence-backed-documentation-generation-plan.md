@@ -22,7 +22,7 @@ source-implemented on `6fb5e34…`; exact self-evaluation `37292220926` confirms
 JSON `2/35`. The typo-named audit briefing rename on `0b42c28…` (run `37310134250`) reaches `692/735`
 (`9414` bps) with Markdown `151/151`, completing in-policy coverage.
 
-The existing coordinated `ath generate` command is unchanged. No model provider, daemon, or MCP integration is enabled; the separately scoped HTTP reader reuses the Markdown parser's HTML feature.
+The existing coordinated `ath generate` command is unchanged. No model provider, daemon, or MCP integration is enabled; the separately scoped HTTP reader reuses the Markdown parser's HTML feature. [DOCGEN-002](repository-documentation-ownership.md) separately plans read-only, exact-snapshot Cargo and partial Rust syntax ownership, without page publication or changing the execution-confirmed DOCGEN-001 status.
 
 ```text
 source files -> adapters -> exact committed snapshot -> bounded context -> cited document -> immutable generation

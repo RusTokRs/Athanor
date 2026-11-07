@@ -54,6 +54,224 @@ async fn production_index_runtime_publishes_one_typed_generation() {
 }
 
 #[tokio::test]
+async fn marker_impl_addition_and_removal_relinks_reused_rust_declarations() {
+    use athanor_domain::{EntityKind, RelationKind};
+
+    let root = test_root("rust-marker-impl-incremental");
+    fs::create_dir_all(root.join("src")).expect("create Rust source directory");
+    let source = root.join("src/lib.rs");
+    let declarations = "struct Record;\ntrait Reader {}\n";
+    fs::write(&source, declarations).expect("write initial Rust declarations");
+    let composition = crate::test_runtime::composition();
+    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+
+    let first = run_index(&root, &composition).await;
+    let before = store.load_latest_snapshot().await.unwrap().unwrap();
+    let ids = before
+        .entities
+        .iter()
+        .filter(|entity| {
+            entity
+                .source
+                .as_ref()
+                .is_some_and(|source| source.path == "src/lib.rs")
+                && entity.kind == EntityKind::Symbol
+                && matches!(entity.name.as_str(), "Record" | "Reader")
+        })
+        .map(|entity| entity.id.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2);
+    assert!(
+        before
+            .relations
+            .iter()
+            .all(|relation| relation.kind != RelationKind::Implements)
+    );
+
+    fs::write(
+        &source,
+        format!("{declarations}\nimpl Reader for Record {{}}\n"),
+    )
+    .expect("add marker impl without changing declarations");
+    let added = run_index(&root, &composition).await;
+    assert_ne!(added.snapshot, first.snapshot);
+    assert_eq!(added.changed_files, 1);
+    let with_impl = store.load_latest_snapshot().await.unwrap().unwrap();
+    assert!(
+        with_impl
+            .entities
+            .iter()
+            .filter(|entity| ids.contains(&entity.id))
+            .count()
+            == 2
+    );
+    assert!(with_impl.relations.iter().any(|relation| {
+        relation.kind == RelationKind::Implements
+            && ids.contains(&relation.from)
+            && ids.contains(&relation.to)
+            && relation
+                .evidence
+                .iter()
+                .any(|item| item.extractor.as_deref() == Some("rust-linker"))
+    }));
+
+    fs::write(&source, declarations).expect("remove marker impl");
+    let removed = run_index(&root, &composition).await;
+    assert_ne!(removed.snapshot, added.snapshot);
+    assert_eq!(removed.changed_files, 1);
+    let without_impl = store.load_latest_snapshot().await.unwrap().unwrap();
+    assert!(
+        without_impl
+            .entities
+            .iter()
+            .filter(|entity| ids.contains(&entity.id))
+            .count()
+            == 2
+    );
+    assert!(
+        without_impl
+            .relations
+            .iter()
+            .all(|relation| relation.kind != RelationKind::Implements)
+    );
+
+    fs::remove_dir_all(root).expect("remove incremental Rust fixture");
+}
+
+#[tokio::test]
+async fn incremental_reindex_replaces_env_fact_on_reused_rust_function() {
+    use athanor_domain::{EntityKind, FactKind};
+
+    let root = test_root("rust-reused-function-env-fact");
+    fs::create_dir_all(root.join("src")).expect("create Rust source directory");
+    let source = root.join("src/lib.rs");
+    let rust_source = |name| {
+        format!(
+            "pub fn keep() {{ std::env::var(\"A\"); }}\npub fn run() {{ std::env::var(\"{name}\"); }}\n"
+        )
+    };
+    fs::write(&source, rust_source("A")).expect("write initial Rust source");
+    let composition = crate::test_runtime::composition();
+    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+
+    let first = run_index(&root, &composition).await;
+    let before = store.load_latest_snapshot().await.unwrap().unwrap();
+    let run_before = before
+        .entities
+        .iter()
+        .find(|entity| entity.kind == EntityKind::Function && entity.name == "run")
+        .expect("run declaration exists");
+    assert!(before.facts.iter().any(|fact| {
+        fact.kind == FactKind::EnvVarUsed
+            && fact.subject == run_before.id
+            && fact.value["name"] == "A"
+    }));
+
+    fs::write(&source, rust_source("B")).expect("change only run's env literal");
+    let second = run_index(&root, &composition).await;
+    assert_ne!(second.snapshot, first.snapshot);
+    assert_eq!(second.changed_files, 1);
+    let after = store.load_latest_snapshot().await.unwrap().unwrap();
+    let run_after = after
+        .entities
+        .iter()
+        .find(|entity| entity.id == run_before.id)
+        .expect("run declaration is reused");
+    assert_eq!(run_after.payload, run_before.payload);
+    let run_facts = after
+        .facts
+        .iter()
+        .filter(|fact| fact.kind == FactKind::EnvVarUsed && fact.subject == run_before.id)
+        .collect::<Vec<_>>();
+    assert_eq!(run_facts.len(), 1, "the old A fact must not survive");
+    assert_eq!(run_facts[0].value["name"], "B");
+    assert!(after.facts.iter().any(|fact| {
+        fact.kind == FactKind::EnvVarUsed
+            && fact.subject != run_before.id
+            && fact.value["name"] == "A"
+    }));
+
+    fs::remove_dir_all(root).expect("remove incremental env fact fixture");
+}
+
+#[tokio::test]
+async fn incremental_reindex_retains_shared_env_from_an_unchanged_file() {
+    use athanor_domain::{EntityKind, FactKind};
+
+    let root = test_root("shared-env-across-rust-files");
+    fs::create_dir_all(root.join("src")).expect("create Rust source directory");
+    let paths = ["src/first.rs", "src/second.rs"];
+    let rust_source = |name| format!("pub fn read() {{ std::env::var(\"{name}\"); }}\n");
+    for path in paths {
+        fs::write(root.join(path), rust_source("SHARED")).expect("write shared env source");
+    }
+    let composition = crate::test_runtime::composition();
+    let store = JsonlKnowledgeStore::new(root.join(".athanor/store/canonical/jsonl"));
+
+    let first = run_index(&root, &composition).await;
+    let before = store.load_latest_snapshot().await.unwrap().unwrap();
+    let shared = before
+        .entities
+        .iter()
+        .find(|entity| entity.kind == EntityKind::EnvVar && entity.name == "SHARED")
+        .expect("canonical EnvVar is emitted by both files");
+    let owner = shared
+        .source
+        .as_ref()
+        .expect("canonical env source")
+        .path
+        .as_str();
+    assert!(paths.contains(&owner));
+    let other = paths.into_iter().find(|path| *path != owner).unwrap();
+    assert!(before.facts.iter().any(|fact| {
+        fact.kind == FactKind::EnvVarUsed
+            && fact.object.as_ref() == Some(&shared.id)
+            && fact
+                .ownership
+                .iter()
+                .any(|source| source.source_file == other)
+    }));
+
+    fs::write(root.join(owner), rust_source("REPLACED"))
+        .expect("canonical owner no longer uses shared env");
+    let second = run_index(&root, &composition).await;
+    assert_ne!(second.snapshot, first.snapshot);
+    assert_eq!(
+        second.changed_files, 2,
+        "the other source needs fresh provenance"
+    );
+    let after = store.load_latest_snapshot().await.unwrap().unwrap();
+    let surviving = after
+        .entities
+        .iter()
+        .find(|entity| entity.id == shared.id)
+        .expect("unchanged source still declares the shared EnvVar");
+    assert_eq!(surviving.source.as_ref().unwrap().path, other);
+    assert_eq!(surviving.ownership[0].source_file, other);
+    assert!(after.facts.iter().any(|fact| {
+        fact.kind == FactKind::EnvVarUsed
+            && fact.object.as_ref() == Some(&shared.id)
+            && fact
+                .ownership
+                .iter()
+                .any(|source| source.source_file == other)
+    }));
+    assert!(after.facts.iter().all(|fact| {
+        fact.kind != FactKind::EnvVarUsed
+            || fact.object.as_ref() != Some(&shared.id)
+            || !fact
+                .ownership
+                .iter()
+                .any(|source| source.source_file == owner)
+    }));
+    let settled = run_index(&root, &composition).await;
+    assert_eq!(settled.snapshot, second.snapshot);
+    assert_eq!(settled.changed_files, 0);
+
+    fs::remove_dir_all(root).expect("remove shared env fixture");
+}
+
+#[tokio::test]
 async fn missing_canonical_snapshot_invalidates_stale_incremental_state() {
     let root = test_root("missing-canonical");
     fs::create_dir_all(root.join("src")).expect("create source directory");

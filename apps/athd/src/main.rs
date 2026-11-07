@@ -392,8 +392,32 @@ enum ServiceCommand {
     },
 }
 
+#[cfg(not(feature = "store-surreal"))]
 #[tokio::main]
 async fn main() -> Result<()> {
+    run().await
+}
+
+#[cfg(feature = "store-surreal")]
+fn main() -> Result<()> {
+    // SurrealDB's embedded engine runs on the initial runtime thread as well as workers.
+    // Give both a sufficient stack without changing the default JSONL daemon runtime.
+    const STACK_SIZE: usize = 16 * 1024 * 1024;
+    std::thread::Builder::new()
+        .name("athanor-daemon".to_string())
+        .stack_size(STACK_SIZE)
+        .spawn(|| -> Result<()> {
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .thread_stack_size(STACK_SIZE)
+                .enable_all()
+                .build()?;
+            runtime.block_on(run())
+        })?
+        .join()
+        .map_err(|_| anyhow::anyhow!("Athanor daemon thread panicked"))?
+}
+
+async fn run() -> Result<()> {
     let composition = athanor_runtime_defaults::production();
     let cli = Cli::parse();
     init_tracing(command_log_file(&cli.command))?;

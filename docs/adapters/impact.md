@@ -16,7 +16,7 @@ Implement `ath impact <stable-key | path>` query command to calculate the direct
 ## CLI Command Usage
 ```bash
 # Analyze impact of a specific symbol stable key
-ath impact "symbol://rust:crate::auth::login"
+ath impact "symbol://rust:file:17:src/auth/login.rs:crate::auth::login"
 
 # Analyze impact of a specific file path
 ath impact "src/auth/login.rs"
