@@ -21,22 +21,22 @@ impl SurrealKnowledgeStore {
         let entities = batch
             .entities
             .iter()
-            .map(|entity| insert_record(&snapshot, &entity.id.0, entity))
+            .map(|entity| insert_record("entity", &snapshot, &entity.id.0, entity))
             .collect::<CoreResult<Vec<_>>>()?;
         let facts = batch
             .facts
             .iter()
-            .map(|fact| insert_record(&snapshot, &fact.id.0, fact))
+            .map(|fact| insert_record("fact", &snapshot, &fact.id.0, fact))
             .collect::<CoreResult<Vec<_>>>()?;
         let relations = batch
             .relations
             .iter()
-            .map(|relation| insert_record(&snapshot, &relation.id.0, relation))
+            .map(|relation| insert_record("relation", &snapshot, &relation.id.0, relation))
             .collect::<CoreResult<Vec<_>>>()?;
         let diagnostics = batch
             .diagnostics
             .iter()
-            .map(|diagnostic| insert_record(&snapshot, &diagnostic.id.0, diagnostic))
+            .map(|diagnostic| insert_record("diagnostic", &snapshot, &diagnostic.id.0, diagnostic))
             .collect::<CoreResult<Vec<_>>>()?;
         let generation = GenerationId::for_snapshot(&snapshot);
 
@@ -60,7 +60,7 @@ impl SurrealKnowledgeStore {
             sql.push_str("INSERT INTO diagnostic $diagnostics RETURN NONE;\n");
         }
         sql.push_str(
-            "UPDATE type::thing('snapshot', $snapshot) \
+            "UPDATE type::record('snapshot', $snapshot) \
              SET prepared = true, committed = true, generation = $generation RETURN NONE;\n\
              COMMIT;",
         );

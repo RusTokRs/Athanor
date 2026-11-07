@@ -30,8 +30,10 @@ Persists:
 ## Commands And Network
 
 - Does not run external commands.
-- Supports both local memory (`mem://`) and persistent local file storage (`surrealkv://path`).
+- Uses the SurrealDB 4.0 SDK for local memory (`mem://`) and persistent local file storage (`surrealkv://path`).
+- The optional `remote` feature supports WebSocket connections to a compatible SurrealDB 4 server; CI tests two independent connections.
 - Does not require network access for embedded memory/file modes.
+- Before upgrading an existing persistent store from SurrealDB 2, back up its data and validate migration with the server's documented procedures; do not assume direct file-format compatibility across major versions.
 
 ## Limitations
 

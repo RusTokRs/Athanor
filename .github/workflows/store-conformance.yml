@@ -44,7 +44,10 @@ jobs:
         with:
           key: store-conformance-${{ matrix.backend }}
       - name: Run backend contract suite
-        run: cargo test -p "${{ matrix.package }}" --locked
+        shell: bash
+        run: |
+          bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/store-${{ matrix.backend }}.log" \
+            "store-${{ matrix.backend }} log tail" cargo test -p "${{ matrix.package }}" --locked
 
   surrealdb-remote:
     name: Store contract / surrealdb-remote
@@ -64,13 +67,13 @@ jobs:
         uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2.9.1
         with:
           key: store-conformance-surrealdb-remote
-      - name: Start SurrealDB 2.6.5 test server
+      - name: Start SurrealDB 4.0.0 test server
         shell: bash
         run: |
           docker run --detach --rm \
             --name athanor-surrealdb \
             --publish 8000:8000 \
-            surrealdb/surrealdb:v2.6.5 \
+            surrealdb/surrealdb:v4.0.0 \
             start --log warn --unauthenticated --bind 0.0.0.0:8000 memory
       - name: Wait for SurrealDB health endpoint
         shell: bash
@@ -89,9 +92,9 @@ jobs:
         env:
           ATHANOR_SURREAL_REMOTE_URI: ws://127.0.0.1:8000
         run: |
-          set -o pipefail
-          cargo test -p athanor-store-surrealdb --features remote --test remote --locked -- --ignored --nocapture \
-            2>&1 | tee "$RUNNER_TEMP/surrealdb-remote.log"
+          bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/surrealdb-remote.log" \
+            "surrealdb-remote log tail" cargo test -p athanor-store-surrealdb --features remote \
+            --test remote --locked -- --ignored --nocapture
       - name: Capture SurrealDB logs
         if: always()
         shell: bash

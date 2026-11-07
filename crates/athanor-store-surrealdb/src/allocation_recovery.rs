@@ -2,7 +2,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use athanor_core::{CoreError, CoreResult, OperationContext};
 use athanor_domain::{RepoId, SnapshotBase, SnapshotId};
-use super::{SnapshotRecord, SurrealKnowledgeStore};
+use serde_json::Value;
+use surrealdb::types::SerdeWrapper;
+
+use super::{SnapshotRecord, SurrealKnowledgeStore, snapshot_content};
 
 const MAX_ORPHAN_CLEANUP_BATCH: usize = 128;
 const DEFAULT_ORPHAN_MIN_AGE_MS: u64 = 24 * 60 * 60 * 1_000;
@@ -40,10 +43,10 @@ impl SurrealKnowledgeStore {
             allocation_created_at_unix_ms: Some(current_unix_ms()),
         };
 
-        let _: Option<SnapshotRecord> = self
+        let _: Option<Value> = self
             .db
             .create(("snapshot", &snapshot_id))
-            .content(record)
+            .content(snapshot_content(&record)?)
             .await
             .map_err(|error| {
                 CoreError::Adapter(format!(
@@ -91,14 +94,14 @@ impl SurrealKnowledgeStore {
                     "stale snapshot allocation selection failed: {error}"
                 ))
             })?;
-        let candidates: Vec<SnapshotRecord> = response.take(0).map_err(|error| {
+        let candidates: Vec<SerdeWrapper<SnapshotRecord>> = response.take(0).map_err(|error| {
             CoreError::Adapter(format!(
                 "failed to parse stale snapshot allocations: {error}"
             ))
         })?;
 
         let mut removed = Vec::with_capacity(candidates.len());
-        for candidate in candidates.into_iter().filter(|candidate| {
+        for SerdeWrapper(candidate) in candidates.into_iter().filter(|SerdeWrapper(candidate)| {
             candidate
                 .allocation_created_at_unix_ms
                 .is_some_and(|created| created <= stale_before_unix_ms)
@@ -107,7 +110,7 @@ impl SurrealKnowledgeStore {
             let mut delete_response = self
                 .db
                 .query(
-                    "DELETE type::thing('snapshot', $snapshot) \
+                    "DELETE type::record('snapshot', $snapshot) \
                      WHERE repo = $repo \
                        AND committed = false \
                        AND prepared = false \
@@ -129,7 +132,7 @@ impl SurrealKnowledgeStore {
                         snapshot.0
                     ))
                 })?;
-            let deleted: Option<SnapshotRecord> = delete_response.take(0).map_err(|error| {
+            let deleted: Option<Value> = delete_response.take(0).map_err(|error| {
                 CoreError::Adapter(format!(
                     "failed to parse deleted snapshot allocation {}: {error}",
                     snapshot.0

@@ -110,8 +110,8 @@ jobs:
         id: format
         shell: bash
         run: |
-          set -o pipefail
-          cargo fmt --all -- --check 2>&1 | tee "$RUNNER_TEMP/cargo-fmt.log"
+          bash .github/scripts/run-with-log.sh "$RUNNER_TEMP/cargo-fmt.log" \
+            "cargo-fmt log tail" cargo fmt --all -- --check
       - name: Upload formatting diagnostics
         if: ${{ failure() && steps.format.outcome == 'failure' && runner.os == 'Linux' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

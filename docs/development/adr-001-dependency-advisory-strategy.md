@@ -76,3 +76,12 @@ Constraints:
 - Verification: `cargo deny check` green, `cargo audit` with zero unignored advisories
   in the default feature set, `cargo test --workspace --locked` green on Linux, Windows,
   and macOS.
+
+## Follow-up: SurrealDB security upgrade (2026-11-07)
+
+The optional store adapter now targets SurrealDB 4.0.0 and a matching remote test server instead
+of 2.6.5. This removes the vulnerable `surrealdb-core`/SurrealKV versions and the `reblessive`
+transitive without excluding the adapter from advisory checks or adding advisory ignores. The
+major SDK change requires typed database record IDs and explicit conversions at the adapter
+boundary; the canonical Athanor JSON representation remains unchanged. Persistent SurrealDB 2
+files must be backed up and migrated with a supported procedure before upgrading the engine.
